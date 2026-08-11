@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Eventuous: el framework de event sourcing que usamos en todo el curso. -->
+    <PackageReference Include="Eventuous" Version="0.16.3" />
+    <PackageReference Include="Eventuous.Application" Version="0.16.3" />
+  </ItemGroup>
+
+</Project>

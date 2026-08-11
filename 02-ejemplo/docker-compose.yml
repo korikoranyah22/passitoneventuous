@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Postgres para el curso. El event store de Eventuous y el read model viven en
+# el MISMO Postgres (schemas distintos: curso_eventstore / curso_readmodel).
+#
+# Uso:  docker compose up -d
+#       docker compose down          (borra todo; los eventos se pierden)
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cursoagentes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       cursoagentesdb
+      POSTGRES_USER:     cursoagentes
+      POSTGRES_PASSWORD: curso123
+    ports:
+      # Expuesto al host para que la app de consola (y cualquier herramienta de
+      # BD) pueda conectarse. En producción NO se expondría.
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cursoagentes -d cursoagentesdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

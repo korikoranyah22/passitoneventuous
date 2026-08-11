@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CursoAgentes.Domain\CursoAgentes.Domain.csproj" />
+    <ProjectReference Include="..\CursoAgentes.Engine\CursoAgentes.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Eventuous + PostgreSQL: el event store real. -->
+    <PackageReference Include="Eventuous" Version="0.16.3" />
+    <PackageReference Include="Eventuous.Application" Version="0.16.3" />
+    <PackageReference Include="Eventuous.Extensions.DependencyInjection" Version="0.16.3" />
+    <PackageReference Include="Eventuous.Postgresql" Version="0.16.3" />
+    <PackageReference Include="Npgsql" Version="10.0.2" />
+    <!-- Infra genérica de Microsoft.Extensions. -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.6" />
+  </ItemGroup>
+
+</Project>

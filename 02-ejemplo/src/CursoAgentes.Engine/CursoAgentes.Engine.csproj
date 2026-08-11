@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CursoAgentes.Domain\CursoAgentes.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Solo abstracciones de logging: el motor no sabe nada de HTTP ni de Postgres. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.6" />
+  </ItemGroup>
+
+</Project>

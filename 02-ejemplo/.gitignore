@@ -1,0 +1,13 @@
+# Build artifacts
+bin/
+obj/
+*.user
+
+# .NET
+*.suo
+.vs/
+.idea/
+.vscode/
+
+# Logs
+*.log
