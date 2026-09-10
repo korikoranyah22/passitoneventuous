@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ElectionAudit.Shared\ElectionAudit.Shared.csproj" />
+    <ProjectReference Include="..\..\..\..\angelnairav2_public\Packages\MiyuAgents\src\MiyuAgents.csproj" />
+  </ItemGroup>
+</Project>

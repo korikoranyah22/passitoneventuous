@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "dgSpecHash": "6kWo3SN5uMc=",
+  "success": true,
+  "projectFilePath": "C:\\code-workspaces\\Pass it on\\clase-eventuous-agentes-llm\\06-casos-practicos-electorales\\src\\ElectionAudit.Shared\\ElectionAudit.Shared.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.configuration\\10.0.6\\microsoft.extensions.configuration.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.configuration.abstractions\\10.0.6\\microsoft.extensions.configuration.abstractions.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.configuration.binder\\10.0.6\\microsoft.extensions.configuration.binder.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.dependencyinjection\\10.0.6\\microsoft.extensions.dependencyinjection.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\10.0.6\\microsoft.extensions.dependencyinjection.abstractions.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.diagnostics\\10.0.6\\microsoft.extensions.diagnostics.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.diagnostics.abstractions\\10.0.6\\microsoft.extensions.diagnostics.abstractions.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.http\\10.0.6\\microsoft.extensions.http.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.logging\\10.0.6\\microsoft.extensions.logging.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\10.0.6\\microsoft.extensions.logging.abstractions.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.options\\10.0.6\\microsoft.extensions.options.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.options.configurationextensions\\10.0.6\\microsoft.extensions.options.configurationextensions.10.0.6.nupkg.sha512",
+    "C:\\Users\\miyur\\.nuget\\packages\\microsoft.extensions.primitives\\10.0.6\\microsoft.extensions.primitives.10.0.6.nupkg.sha512"
+  ],
+  "logs": []
+}

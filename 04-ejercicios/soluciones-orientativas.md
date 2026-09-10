@@ -304,8 +304,9 @@ telemetría sintética
   → caso humano idempotente
 ```
 
-Sin el mismatch de integridad queda una señal menos severa y la política ya no
-cumple la combinación `integrity + audit-gap` exigida para revisión urgente.
+Sin el mismatch de release queda una señal menos severa y la política ya no
+cumple la combinación `release-integrity + transmission-integrity` exigida
+para revisión urgente.
 No alcanza con que el LLM mantenga una hipótesis alarmante: la acción se calcula
 sólo desde findings deterministas y una crítica validada.
 
@@ -318,7 +319,7 @@ El ciclo recursivo se prueba haciendo que el refiner no cambie su cycle key. Si
 la detección de ciclos está deshabilitada, debe fallar por `MaxDepth` o
 `MaxCalls`. La falla segura es preferible a aceptar una evaluación incompleta.
 
-La idempotencia usa `election-defense:{runId}`. Dos ejecuciones con el mismo ID
+La idempotencia usa `provisional-audit:{runId}`. Dos ejecuciones con el mismo ID
 devuelven el mismo caso; IDs distintos representan investigaciones distintas y
 crean dos. Esta regla vive en el puerto determinista, no en el texto del prompt.
 
@@ -334,5 +335,5 @@ Al reemplazar gateways offline por Ollama, los perfiles deben seguir exigiendo
 `private`. Conviene usar `AllowFallback = false` para telemetría no sanitizada y
 registrar únicamente rutas aprobadas por el host. El hecho de que dos modelos
 coincidan no otorga autoridad: `RequiresHumanApproval` y
-`AutomaticSystemMutationAllowed` siguen siendo resultados de política, no de
+`AutomaticMutationAllowed` siguen siendo resultados de política, no de
 consenso agéntico.

@@ -1,6 +1,6 @@
 # Ejercicios
 
-Doce ejercicios ordenados por dificultad. Cada uno tiene un **objetivo**, los
+Trece ejercicios ordenados por dificultad. Cada uno tiene un **objetivo**, los
 **archivos que vas a tocar** y una **pista**. Las soluciones orientativas están
 en `soluciones-orientativas.md` (leelas después de intentarlo, no antes 😉).
 
@@ -295,21 +295,25 @@ presupuesto agotado.
 **Objetivo**: diseñar una defensa asistida por agentes sin delegar al modelo una
 decisión irreversible.
 
-Corré las tres variantes:
+Leé primero los [supuestos y fuentes oficiales](../06-casos-practicos-electorales/00-investigacion-y-supuestos.md)
+y después corré las tres aplicaciones completas:
 
 ```bash
-dotnet run --project ../angelnairav2_public/Packages/MiyuAgents/examples/election-defense -- all
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.Pipeline
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.FixedNodes
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.Recursive
+dotnet test 06-casos-practicos-electorales/tests/ElectionAudit.Tests
 ```
 
 Después resolvé, de a una, estas modificaciones:
 
-1. eliminá el mismatch de integridad y verificá que la política deje de elegir
-   la revisión urgente;
+1. eliminá primero el mismatch de release y verificá que la política deje de
+   elegir la revisión urgente aunque persistan findings de otra categoría;
 2. hacé que el assessment cite `finding-inventado` y verificá que el gate lo
    rechace antes de la crítica;
 3. hacé que el refiner recursivo devuelva dos veces el mismo assessment y
    comprobá el corte por ciclo o presupuesto;
-4. ejecutá dos veces el pipeline con el mismo `runId` y con IDs distintos;
+4. ejecutá dos veces el pipeline con el mismo `runId` y luego con IDs distintos;
    explicá por qué debe crear uno y dos casos respectivamente;
 5. agregá una nueva categoría `configuration-drift` con detector determinista,
    artifact, criterio recursivo y test;

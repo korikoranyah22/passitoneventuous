@@ -2,129 +2,168 @@
 
 ## Objetivo
 
-Traducir la idea de una "IA inversa" defensiva a un workflow concreto y
-auditable, sin convertir al modelo en autoridad de seguridad ni enseñar fases
-de ataque.
+Traducir la idea de una "IA inversa" defensiva a tres aplicaciones completas,
+auditables y comparables, sin convertir al modelo en autoridad electoral ni
+enseñar fases de ataque.
 
-El ejemplo usa telemetría completamente sintética y compara tres formas de
-expresar la misma misión:
+El código está en
+[`06-casos-practicos-electorales`](../06-casos-practicos-electorales/).
+Las tres opciones consumen los mismos ports, observaciones sintéticas, detector,
+perfiles LLM y política. Sólo cambia la abstracción de control.
 
-- pipeline secuencial normal;
-- grafo de nodos fijo y no recursivo;
-- grafo con objetivos recursivos acotados.
+## Antes del código: qué se investigó
 
-Código ejecutable:
-[`MiyuAgents/examples/election-defense`](../../angelnairav2_public/Packages/MiyuAgents/examples/election-defense/).
+La [investigación y sus fuentes oficiales](../06-casos-practicos-electorales/00-investigacion-y-supuestos.md)
+fija cuatro límites del modelo:
 
-## La frontera importante
+1. El Código Electoral permite **proyectar** la elección general nacional para
+   el 24 de octubre de 2027. El ejemplo marca esa fecha como
+   `ProjectedFromCurrentLaw`: no inventa un cronograma oficial.
+2. El ciclo constitucional exige modelar la fórmula presidencial, la mitad de
+   Diputados y un tercio de los distritos del Senado; el detalle oficial de
+   bancas y distritos no se inventa y entra por el calendario.
+3. La elección nacional usa Boleta Única de Papel. No se modela voto
+   electrónico ni preferencias individuales.
+4. Recuento provisorio y escrutinio definitivo son procesos distintos. El
+   workflow observa sistemas auxiliares del provisorio; nunca decide validez.
+5. La suspensión de PASO fue específica de 2025. Las fases de 2027 entran por
+   un port configurable y no quedan hardcodeadas como hecho jurídico.
 
-La IA no "defiende la elección" por sí sola. Sus responsabilidades son mucho
-más estrechas:
+El simulacro oficial 2025 incluyó transmisión, recepción, carga/digitación,
+procesamiento, fiscalización, totalización y difusión. Esas fases inspiran los
+ports, pero el curso no afirma que exista hoy una API pública con estos nombres.
 
-| Parte | Naturaleza | Responsabilidad |
+## Interfaces hipotéticas de sólo lectura
+
+| Port | Observación mínima | Autoridad que no concede |
 |---|---|---|
-| Recolección | I/O controlado | Obtener telemetría de fuentes permitidas |
-| Validación | Determinista | Rechazar registros incompletos, duplicados o fuera de ventana |
-| Detección | Determinista | Producir findings reproducibles con IDs de evidencia |
-| Evaluación | Agéntica | Proponer hipótesis limitadas a esos findings |
-| Crítica | Agéntica | Buscar afirmaciones sin respaldo y evidencia faltante |
-| Validación de citas | Determinista | Impedir que el LLM invente un finding |
-| Decisión | Determinista | Aplicar una política versionada |
-| Efecto | Determinista e idempotente | Abrir un caso para revisión humana una sola vez |
+| `IElectionCalendarPort` | contiendas, fases, ventanas y fuente | cambiar el cronograma o bancas |
+| `ISoftwareBaselinePort` | releases aprobadas y mediciones | desplegar software |
+| `ITransmissionObservationPort` | recibos y digests de sobres | leer o alterar votos |
+| `IDigitizationAuditPort` | doble carga, digest y visibilidad | corregir resultados |
+| `IAccessAuditPort` | accesos seudonimizados | obtener credenciales |
+| `IPublicationCheckpointPort` | secuencia, cantidad y digest | publicar resultados |
+| `IHumanReviewCasePort` | alta idempotente de revisión | contener automáticamente |
 
-La política siempre fija:
+Los adapters de `SyntheticElectionEnvironment` implementan estos contratos
+offline. Un host autorizado podría reemplazarlos por adaptadores reales con
+autenticación mutua, mínimo privilegio, retención y logs inmutables sin cambiar
+el workflow.
+
+## Frontera entre agencia y control
+
+```text
+ports de sólo lectura
+  → detección determinista con evidence IDs
+  → evaluación LLM privada
+  → gate determinista de esquema y citas
+  → crítica LLM independiente
+  → gate determinista de crítica
+  → política versionada
+  → caso humano idempotente
+```
+
+La evaluación y la crítica pueden variar. No pueden crear evidencia válida:
+`ElectionAuditContracts` exige que citen **todos y sólo** los finding IDs del
+detector. La acción se calcula con `ElectionAuditPolicy`, que siempre devuelve:
 
 ```text
 RequiresHumanApproval = true
-AutomaticSystemMutationAllowed = false
+AutomaticMutationAllowed = false
 ```
 
-Por lo tanto, ni una evaluación muy confiada ni el acuerdo de dos modelos puede
-aislar equipos, cambiar software o alterar datos electorales.
+## Opción A · Pipeline normal
 
-## Señales del ejemplo
-
-El detector busca cuatro clases de evidencia defensiva:
-
-1. digest de software distinto de la baseline aprobada;
-2. acceso privilegiado exitoso fuera del segmento administrativo;
-3. cinco o más autenticaciones fallidas sobre un mismo principal;
-4. huecos en una secuencia append-only de auditoría.
-
-Cada finding conserva los IDs de los registros que lo originaron. El LLM recibe
-findings normalizados, no libertad para declarar que "vio" eventos inexistentes.
-
-## Variante A · Pipeline normal
-
-La variante `pipeline` tiene ocho etapas ordenadas. Es la forma más directa
-cuando el orden es conocido y cada etapa se ejecuta una vez.
+[`ElectionAudit.Pipeline`](../06-casos-practicos-electorales/src/ElectionAudit.Pipeline/)
+implementa ocho `IPipelineStage` ordenados por prioridad. Los datos pasan por
+`PipelineContext.SharedData`; un contrato inválido aborta la cadena antes del
+efecto.
 
 ```powershell
-dotnet run --project ../angelnairav2_public/Packages/MiyuAgents/examples/election-defense -- pipeline
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.Pipeline
 ```
 
-El programa repite el mismo `runId`: la segunda ejecución recupera el recibo y
-no crea otro caso. Esa idempotencia no depende del LLM.
+Elegí esta opción si el orden se conoce, cada etapa corre una vez y no necesitás
+semántica de nodo. Es el baseline de menor complejidad.
 
-## Variante B · Nodos fijos
+## Opción B · Nodos fijos
 
-La variante `nodes` convierte cada etapa en un `INodeAgent` y las reúne con
-`SequenceStrategy`:
+[`ElectionAudit.FixedNodes`](../06-casos-practicos-electorales/src/ElectionAudit.FixedNodes/)
+convierte las mismas ocho etapas en `INodeAgent`. Un `WorkflowNode` y una
+`SequenceStrategy` controlan la ejecución; los resultados pasan como artifacts
+tipados y un fallo se expresa como `NodeSignal.Failed`.
 
 ```powershell
-dotnet run --project ../angelnairav2_public/Packages/MiyuAgents/examples/election-defense -- nodes
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.FixedNodes
 ```
 
-El comportamiento sigue siendo lineal y no recursivo. Elegir nodos se justifica
-por composición, artifacts y trazabilidad, no porque todo workflow de agentes
+El grafo es deliberadamente no recursivo. Los nodos se justifican por
+composición, señales, trazas y transcripts, no porque todo proceso agéntico
 deba recursar.
 
-## Variante C · Objetivos recursivos
+## Opción C · Objetivos recursivos
 
-La variante `recursive` recursa solamente tres objetivos:
+[`ElectionAudit.Recursive`](../06-casos-practicos-electorales/src/ElectionAudit.Recursive/)
+mantiene una secuencia exterior fija y recursa sólo objetivos con progreso
+medible:
 
-1. recolectar hasta cubrir integridad, acceso, autenticación y continuidad;
-2. revisar la evaluación hasta que cite todos los findings;
-3. repetir la crítica hasta resolver faltantes, afirmaciones sin respaldo y el
-   umbral de confianza.
+| Nodo | Estado | Gate | Resultado del fixture |
+|---|---|---|---|
+| completar feeds | `IncrementalObservationState` | seis fuentes presentes | 6 refinamientos |
+| fundamentar evaluación | `AssessmentObjectiveState` | esquema y citas completas | 2 refinamientos |
+| sostener crítica | `CritiqueObjectiveState` | supported, ≥ 0.85, sin claims huérfanos | 2 refinamientos |
 
 ```powershell
-dotnet run --project ../angelnairav2_public/Packages/MiyuAgents/examples/election-defense -- recursive
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.Recursive
 ```
 
-Cada objetivo registra cuántos refinamientos necesitó y corta por profundidad,
-cantidad de llamadas, duración o ciclo. La decisión y el efecto final continúan
-siendo nodos normales: no ganan nada por recursar.
+Cada `RecursiveObjectiveNode<TState>` declara profundidad, llamadas, duración y
+`cycleKey`. El detector, la política y el case port continúan como nodos
+normales porque su salida debe ser reproducible y no mejora al recursar.
+
+## Comparación verificable
+
+| Propiedad | Pipeline | Nodos fijos | Recursivo |
+|---|---|---|---|
+| pasos conocidos | sí | sí | secuencia exterior |
+| artifacts/señales de nodo | no | sí | sí |
+| número dinámico de refinamientos | no | no | sí, acotado |
+| detector y política compartidos | sí | sí | sí |
+| mutación automática | no | no | no |
+| case port idempotente | sí | sí | sí |
+
+La suite comprueba el contrato compartido y evita que una diferencia de control
+se confunda con una diferencia de negocio:
+
+```powershell
+dotnet test 06-casos-practicos-electorales/tests/ElectionAudit.Tests
+```
 
 ## Routing privado
 
-Los gateways offline anuncian dos perfiles:
+El fixture ofrece dos perfiles independientes:
 
-- `private,triage,structured-output`;
-- `private,critic,reasoning,structured-output`.
+- `private-provisional-triage`: `private, triage, structured-output`;
+- `private-provisional-critic`: `private, critic, reasoning, structured-output`.
 
-En un laboratorio local pueden reemplazarse por dos rutas Ollama, por ejemplo
-un modelo pequeño para triage y `qwen3:4b-thinking` o `deepseek-r1:8b` para la
-crítica. El nombre de proveedor no concede acceso a datos: privacidad,
-residencia, sanitización y autorización son políticas explícitas del host.
+`AllowFallback = false` impide que telemetría no sanitizada caiga por accidente
+en una ruta sin la capability requerida. En un laboratorio se pueden sustituir
+los gateways scripted por Ollama u otro proveedor aprobado sin cambiar ports,
+contratos ni política.
 
 ## Extensión event-sourced
 
-Si este proceso debe sobrevivir reinicios, persistí como eventos:
+Para sobrevivir reinicios, persistí como eventos el hash y ventana del lote,
+findings y evidencia, ruta/modelo efectivos, evaluaciones rechazadas, criterio
+recursivo incumplido, versión de política, decisión, intención y recibo del caso.
+No hace falta guardar razonamiento privado; sí poder reconstruir qué evidencia,
+contrato y política produjeron una revisión.
 
-- ventana y hash del lote recolectado;
-- findings deterministas y sus IDs de evidencia;
-- ruta/modelo efectivos de cada llamada;
-- evaluaciones rechazadas y criterio incumplido;
-- versión de política y decisión;
-- intención y recibo del caso idempotente.
+## Límites
 
-No hace falta persistir razonamiento privado del proveedor. Sí hace falta poder
-reconstruir qué evidencia, contrato y política produjeron el resultado.
-
-## Límites del ejemplo
-
-No es una certificación electoral ni una implementación de una norma de
-seguridad. No contiene infraestructura real, credenciales, escaneo activo,
-exploits, malware ni acciones de contención. Su propósito es enseñar cómo
-encapsular análisis no determinista dentro de controles verificables y humanos.
+Estos ejemplos no son una certificación electoral ni una integración oficial.
+No incluyen credenciales, escaneo activo, explotación, malware, contenido de
+telegramas ni acciones de contención. El ejemplo compacto de referencia del
+framework permanece en
+[`MiyuAgents/examples/election-defense`](../../angelnairav2_public/Packages/MiyuAgents/examples/election-defense/);
+la carpeta `06-casos-practicos-electorales` es la versión pedagógica completa.

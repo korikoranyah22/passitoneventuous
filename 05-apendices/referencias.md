@@ -36,6 +36,14 @@
 - [Ejemplo ejecutable con OpenAI, Azure OpenAI, Anthropic, Gemini y compatibles](../../angelnairav2_public/Packages/MiyuAgents/examples/real-providers/).
 - [Auditoría defensiva electoral: pipeline, nodos y recursión](../../angelnairav2_public/Packages/MiyuAgents/examples/election-defense/).
 
+## Caso electoral completo del curso
+
+- [Investigación, fuentes oficiales y supuestos de interfaces](../06-casos-practicos-electorales/00-investigacion-y-supuestos.md).
+- [Suite comparativa y comandos de ejecución](../06-casos-practicos-electorales/README.md).
+- [Pipeline normal](../06-casos-practicos-electorales/src/ElectionAudit.Pipeline/).
+- [Workflow de nodos fijos](../06-casos-practicos-electorales/src/ElectionAudit.FixedNodes/).
+- [Workflow de objetivos recursivos](../06-casos-practicos-electorales/src/ElectionAudit.Recursive/).
+
 ## El repo real que inspira el curso
 
 El ejemplo replica (a escala de curso) patrones de un sistema en producción que

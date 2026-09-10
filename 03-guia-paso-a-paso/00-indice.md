@@ -27,7 +27,7 @@ como referencia o escribirlos de cero), y un *probalo*.
 | [11 · Estado del ejemplo](11-estado-del-ejemplo.md) | Qué anda, qué falta, por dónde seguir | — |
 | [12 · Caso práctico híbrido](12-caso-practico-hibrido.md) | Comparar pipeline y grafo fijo al recolectar, criticar y actuar | MiyuAgents `routing-workflow/` + `fixed-node-workflow/` |
 | [13 · API asíncrona](13-api-asincrona-y-resume.md) | Aceptar con `202`, ejecutar en background, consultar árbol/auditoría y reanudar | `src/CursoAgentes.Api/` |
-| [14 · Auditoría defensiva electoral](14-auditoria-defensiva-electoral.md) | Comparar pipeline, nodos fijos y recursión acotada sobre telemetría sintética | MiyuAgents `election-defense/` |
+| [14 · Auditoría defensiva electoral](14-auditoria-defensiva-electoral.md) | Comparar tres aplicaciones completas sobre interfaces y telemetría sintéticas | `06-casos-practicos-electorales/` |
 
 ## Progresión mental
 

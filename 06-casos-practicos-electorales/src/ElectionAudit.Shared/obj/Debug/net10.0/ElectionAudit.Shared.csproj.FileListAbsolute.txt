@@ -1,0 +1,15 @@
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\bin\Debug\net10.0\ElectionAudit.Shared.deps.json
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\bin\Debug\net10.0\ElectionAudit.Shared.dll
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\bin\Debug\net10.0\ElectionAudit.Shared.pdb
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\bin\Debug\net10.0\MiyuAgents.dll
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\bin\Debug\net10.0\MiyuAgents.pdb
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ElectionAudit.Shared.csproj.AssemblyReference.cache
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ElectionAudit.Shared.GeneratedMSBuildEditorConfig.editorconfig
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ElectionAudit.Shared.AssemblyInfoInputs.cache
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ElectionAudit.Shared.AssemblyInfo.cs
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ElectionAudit.Shared.csproj.CoreCompileInputs.cache
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\Election.570D2F5D.Up2Date
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ElectionAudit.Shared.dll
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\refint\ElectionAudit.Shared.dll
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ElectionAudit.Shared.pdb
+C:\code-workspaces\Pass it on\clase-eventuous-agentes-llm\06-casos-practicos-electorales\src\ElectionAudit.Shared\obj\Debug\net10.0\ref\ElectionAudit.Shared.dll

@@ -20,7 +20,8 @@ clase-eventuous-agentes-llm/
 ├── 02-ejemplo/                ← el código COMPLETO y funcional (solución .NET)
 ├── 03-guia-paso-a-paso/       ← la guía: construí el ejemplo vos mismo, paso a paso
 ├── 04-ejercicios/             ← ejercicios con soluciones orientativas
-└── 05-apendices/              ← glosario y referencias
+├── 05-apendices/              ← glosario y referencias
+└── 06-casos-practicos-electorales/ ← tres apps completas sobre un mismo dominio defensivo
 ```
 
 **Ruta de estudio sugerida:**
@@ -30,6 +31,8 @@ clase-eventuous-agentes-llm/
 3. Seguí `03-guia-paso-a-paso/` para reconstruirlo vos mismo (cada paso mapea a
    archivos reales del ejemplo).
 4. Hacé los ejercicios de `04-ejercicios/`.
+5. Compará las tres implementaciones completas de
+   `06-casos-practicos-electorales/` sin cambiar dominio, evidencia ni política.
 
 ---
 
@@ -70,6 +73,7 @@ Al terminar esta clase vas a poder:
 | **Ejemplo** | Solución completa verificada | `02-ejemplo/` |
 | **Paso a paso** | 14 pasos: base recursiva + caso híbrido + host HTTP + auditoría defensiva | `03-guia-paso-a-paso/` |
 | **Ejercicios** | 13 ejercicios + soluciones | `04-ejercicios/` |
+| **Casos completos** | Auditoría electoral defensiva como pipeline, nodos fijos y objetivos recursivos | `06-casos-practicos-electorales/` |
 
 ---
 
@@ -99,6 +103,12 @@ dotnet test
 dotnet run --project src/CursoAgentes.App -- --incident
 dotnet run --project src/CursoAgentes.App -- --incident-pipeline
 dotnet run --project src/CursoAgentes.App -- --incident-nodes
+
+# 5. Comparar tres controles sobre el mismo caso electoral sintético
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.Pipeline
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.FixedNodes
+dotnet run --project 06-casos-practicos-electorales/src/ElectionAudit.Recursive
+dotnet test 06-casos-practicos-electorales/tests/ElectionAudit.Tests
 ```
 
 La demo imprime: el **árbol de nodos** del workflow, la **bitácora**, los
@@ -141,7 +151,7 @@ Editá `src/CursoAgentes.App/appsettings.json`:
 | Lease multi-instancia | ✅ dos APIs compartieron PostgreSQL; sólo una ejecutó, 127 nodos/384 eventos exactos y lease liberado |
 | Tests del gateway real (HTTP stub) | ✅ parseo de `/chat/completions` |
 | Gateways reales de MiyuAgents | ✅ OpenAI/Azure OpenAI y compatibles, Anthropic y Gemini; complete/stream/tools/usage y embeddings aplicables verificados con HTTP stubs |
-| Auditoría defensiva electoral | ✅ pipeline normal, grafo fijo y recursión acotada convergen en política determinista; 6 tests offline y sin mutación automática |
+| Auditoría defensiva electoral | ✅ tres apps completas comparten siete ports hipotéticos, detector, routing y política; 7/7 tests offline y sin mutación automática |
 | Corrida end-to-end contra **Postgres real** (16.2) | ✅ **ejecutada y verificada**: árbol de **15 nodos** (recursión 1→2→4→8 hasta `MaxDepth=3`), run `Completed`, **47 eventos** en `curso_eventstore.messages` y read model completo en `curso_readmodel` — ver `03-guia-paso-a-paso/11-estado-del-ejemplo.md` |
 | `dotnet run` (demo de consola) | ✅ corre contra Postgres real (verificado con binarios embebidos en el sandbox; con Docker: `docker compose up -d`) |
 

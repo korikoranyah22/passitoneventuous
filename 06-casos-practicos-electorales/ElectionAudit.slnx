@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ElectionAudit.Shared/ElectionAudit.Shared.csproj" />
+    <Project Path="src/ElectionAudit.Pipeline/ElectionAudit.Pipeline.csproj" />
+    <Project Path="src/ElectionAudit.FixedNodes/ElectionAudit.FixedNodes.csproj" />
+    <Project Path="src/ElectionAudit.Recursive/ElectionAudit.Recursive.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ElectionAudit.Tests/ElectionAudit.Tests.csproj" />
+  </Folder>
+</Solution>
