@@ -37,6 +37,28 @@ Tres fases por nodo:
   testear, reejecutar o reusar una rama sin tocar el resto.
 - **Traza natural**: el árbol ES la explicación de cómo se llegó a la respuesta.
 
+### 5.2.1 Dos formas distintas de recursión
+
+No toda recursión de agentes crea un árbol. En esta clase usamos dos formas:
+
+| Forma | Estado que cambia | Ejemplo |
+|---|---|---|
+| estructural | aparecen subobjetivos hijos de la misma clase | investigar una pregunta dividiéndola |
+| funcional | el mismo estado tipado se refina hasta cumplir un gate | revisar un borrador hasta aprobar una rúbrica |
+
+La primera usa `RecursiveWorkflowRunner` y persiste un árbol Eventuous. La
+segunda se puede expresar con `RecursiveObjectiveNode<TState>` de MiyuAgents:
+
+```text
+evaluar estado
+  ├─ cumple → producir artefacto
+  └─ no cumple → refinar estado → volver a evaluar
+```
+
+En ambos casos tiene que existir una medida de progreso y límites duros. Un
+pipeline que ejecuta ocho pasos conocidos no es recursivo; un grafo que contiene
+otro grafo tampoco necesariamente lo es.
+
 ## 5.3 Cómo se corta la recursión (¡obligatorio!)
 
 Un LLM que siempre dice "dividí" haría que la recursión nunca termine. Tres
@@ -48,7 +70,14 @@ frenos, en capas:
 | `MaxChildrenPerNode` | planner | recorta sub-objetivos a N máximo (anti-explosión) |
 | JSON inválido → hoja | planner | si el LLM no responde JSON, el nodo se vuelve hoja (se responde directo) |
 
-Mirá la condición exacta en `RecursiveWorkflowRunner.ExecuteNodeAsync`:
+Para una recursión funcional en memoria, `RecursionPolicy` agrega otros frenos:
+
+- `MaxDepth` y `MaxCalls`;
+- `MaxDuration`;
+- detección de ciclos sobre el estado o una clave elegida por el host;
+- cancelación cooperativa.
+
+Mirá la condición exacta en `RecursiveWorkflowRunner.ResumeNodeAsync`:
 
 ```csharp
 if (!plan.IsLeaf && ctx.Depth < ctx.MaxDepth && plan.SubGoals.Count > 0)
@@ -73,7 +102,7 @@ else
   otro) → la aplica el **orquestador**, que conoce el árbol completo.
 
 En el código: la recursión termina antes de sintetizar (`childResult = await
-ExecuteNodeAsync(childCtx, …)` y solo después `SynthesizeAsync` + 
+ResumeNodeAsync(childState, …)` y solo después `SynthesizeAsync` +
 `CompleteWorkflowNode`). El runner *garantiza por construcción* que cuando el
 padre se completa, todos sus hijos ya están `Completed`.
 
@@ -98,3 +127,6 @@ el workflow **termina siempre**, sin importar qué diga el LLM.
 - El resultado como árbol: `02-ejemplo/src/CursoAgentes.Engine/Workflow/WorkflowResult.cs`
 - El planner con JSON + defensa: `02-ejemplo/src/CursoAgentes.Engine/Workflow/PlannerAgent.cs`
 - Tests de terminación y de árbol: `02-ejemplo/tests/CursoAgentes.Tests/RecursiveWorkflowRunnerTests.cs`
+- Recursión funcional genérica: `../../angelnairav2_public/Packages/MiyuAgents/src/Workflows/RecursiveWorkflowNode.cs`
+- Plantilla evaluar/refinar: `../../angelnairav2_public/Packages/MiyuAgents/src/Workflows/RecursiveObjectiveNode.cs`
+- Ejemplo de tres etapas recursivas: `../../angelnairav2_public/Packages/MiyuAgents/examples/recursive-review-workflow/`

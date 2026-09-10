@@ -72,11 +72,15 @@ var provider = configuration.GetValue<string>("Llm:Provider") ?? "Fake";
 if (provider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
     services.AddSingleton<ILlmGateway, OpenAiCompatibleGateway>();
 else
-    services.AddSingleton<ILlmGateway, FakeLlmGateway>();
+    services.AddSingleton<ILlmGateway>(sp =>
+        new FakeLlmGateway(
+            logger: sp.GetRequiredService<ILogger<FakeLlmGateway>>()));
 ```
 
 El motor pide `ILlmGateway` y el contenedor decide. **Cero cambios de código**
-para pasar de simulación a producción.
+para pasar de simulación a producción. La factory del fake es intencional:
+evita que DI resuelva su script opcional como una colección vacía y active el
+modo equivocado.
 
 ## 6.4 Buenas prácticas de prompting en el ejemplo
 
@@ -101,6 +105,65 @@ bien formado, que el header `Authorization: Bearer` se mandó, y que el parseo
 de `choices[0].message.content` + `usage` funciona. O sea: probamos el
 adaptador **sin tocar internet**.
 
+## 6.6 Un gateway no es un router
+
+El ejemplo base registra un único `ILlmGateway` porque su objetivo es enseñar el
+puerto/adaptador. En producción suelen convivir varias rutas:
+
+- un modelo local para datos privados;
+- uno rápido para clasificación o JSON;
+- uno de razonamiento para planificación y crítica;
+- una ruta alternativa cuando el proveedor principal está caído.
+
+Elegir “el primer gateway registrado” o escribir el nombre del proveedor dentro
+del agente mezcla responsabilidades. El agente debería pedir capacidades:
+
+```text
+required:  reasoning, structured-output
+preferred: private, fast
+excluded:  cloud
+```
+
+Un selector determinista filtra restricciones duras, puntúa preferencias y
+devuelve una decisión explicable. Un ejecutor separado hace retries transitorios
+sobre la misma ruta y vuelve a rutear cuando la ruta queda descartada.
+
+Esta capacidad se implementa en MiyuAgents mediante `RouteRequest`,
+`LlmRouteProfile`, `LlmGatewayRouter.SelectByTags` e `ILlmCallExecutor`. La
+lección 8 muestra el caso completo.
+
+> Diseño importante: la política específica —privacidad, proveedores
+> permitidos, kill-switch y modelos disponibles— pertenece al host. El
+> framework aporta contratos, selección, resiliencia y trazabilidad.
+
+## 6.7 Proveedores reales incluidos en MiyuAgents
+
+El gateway pequeño de este curso enseña el patrón. MiyuAgents agrega adapters
+HTTP reutilizables para las tres familias de wire más comunes:
+
+| Adapter | Proveedores |
+|---|---|
+| `OpenAiCompatibleGateway` | OpenAI, Azure OpenAI, DeepSeek, Groq, Mistral, OpenRouter, Ollama y servidores compatibles |
+| `AnthropicGateway` | Messages API de Anthropic |
+| `GeminiGateway` | `generateContent`, streaming y embeddings de Gemini |
+
+Los nombres de modelo, claves y etiquetas de producto siguen perteneciendo al
+host. Los adapters anuncian capacidades de protocolo —`chat`, `streaming`,
+`tools`, `vision`, `embeddings`— pero no inventan políticas como
+`approved-for-pii` a partir de la marca del proveedor.
+
+Los tres traducen el mismo `LlmRequest`, preservan usage y herramientas, y
+producen errores HTTP clasificables por `ILlmCallExecutor`. El ejemplo
+[`real-providers`](../../angelnairav2_public/Packages/MiyuAgents/examples/real-providers/)
+lee secretos y modelos desde variables de entorno. Incluye una configuración
+actual de DeepSeek V4 y perfiles locales orientativos para Llama 3.2, Qwen 3,
+DeepSeek R1, Qwen Coder y Gemma 3 sobre Ollama.
+
+Las capacidades se declaran por ruta, no por marca: si un modelo local es
+textual, `ExcludedBuiltInTags = ["vision"]` evita que el selector lo considere
+para una tarea multimodal aunque el adapter OpenAI-compatible sepa serializar
+imágenes.
+
 ---
 
 ## 📖 En el ejemplo
@@ -111,3 +174,5 @@ adaptador **sin tocar internet**.
 - Opciones: `02-ejemplo/src/CursoAgentes.Infrastructure/Llm/LlmGatewayOptions.cs`
 - Test del adaptador con HTTP stub: `02-ejemplo/tests/CursoAgentes.Tests/OpenAiCompatibleGatewayTests.cs`
 - Config: `02-ejemplo/src/CursoAgentes.App/appsettings.json` (sección `Llm`)
+- [Routing y resiliencia de producción](../../angelnairav2_public/Packages/MiyuAgents/docs/routing.md)
+- [Configuración de proveedores reales](../../angelnairav2_public/Packages/MiyuAgents/docs/providers.md)

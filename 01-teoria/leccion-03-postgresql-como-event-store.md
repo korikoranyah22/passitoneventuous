@@ -2,10 +2,10 @@
 
 > Postgres es **excelente** como event store: transacciones, índices,
 > consistencia y un `jsonb` perfecto para payloads de eventos. En este curso no
-> necesitamos un store especializado: **el mismo Postgres guarda los eventos
-> (event store) y las tablas de consulta (read model)**, en schemas separados.
+> necesitamos un store especializado: **el mismo Postgres guarda los eventos,
+> las tablas de consulta y la coordinación operativa**, en schemas separados.
 
-## 3.1 Los dos esquemas del ejemplo
+## 3.1 Los tres esquemas del ejemplo terminado
 
 ```
 cursoagentesdb (una sola base Postgres)
@@ -14,15 +14,21 @@ cursoagentesdb (una sola base Postgres)
 │   ├── messages            (message_id, message_type, stream_id, stream_position,
 │   │                        global_position, json_data, json_metadata, created)
 │   └── tipo compuesto stream_message
-└── curso_readmodel         ← escriben las proyecciones (lectura)
-    ├── workflow_runs
-    └── workflow_nodes
+├── curso_readmodel         ← escriben las proyecciones (lectura)
+│   ├── workflow_runs
+│   ├── workflow_nodes
+│   └── incident_investigations
+└── curso_coordination      ← coordinación entre instancias
+    └── execution_leases
 ```
 
 - `curso_eventstore` lo crea y administra **Eventuous** (lección: "me guarda
   los eventos con nombre, posición y payload jsonb").
 - `curso_readmodel` son tablas planas nuestras, escritas por la proyección
   (lección 8).
+- `curso_coordination` contiene leases operativos para que dos hosts no ejecuten
+  el mismo run al mismo tiempo. No es historia de negocio ni fuente de verdad:
+  puede reconstruirse y sus filas vencen.
 
 ## 3.2 Qué hace Eventuous.Postgresql por vos
 

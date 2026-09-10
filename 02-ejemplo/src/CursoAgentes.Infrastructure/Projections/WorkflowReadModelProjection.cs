@@ -28,6 +28,8 @@ public sealed class WorkflowReadModelProjection : EventHandler
         // Runs
         On<WorkflowRunEvents.V1.WorkflowRunCreated>(ctx =>
             new ValueTask(_store.UpsertRunAsync(ctx.Message, ctx.CancellationToken)));
+        On<WorkflowRunEvents.V1.WorkflowRunExecutionRequested>(ctx =>
+            new ValueTask(_store.UpsertRunAsync(ctx.Message, ctx.CancellationToken)));
         On<WorkflowRunEvents.V1.WorkflowRunCompleted>(ctx =>
             new ValueTask(_store.UpsertRunAsync(ctx.Message, ctx.CancellationToken)));
         On<WorkflowRunEvents.V1.WorkflowRunFailed>(ctx =>

@@ -33,7 +33,12 @@ public static class WorkflowNodeEvents
 
         [EventType("V1.WorkflowNodePlanned")]
         public record WorkflowNodePlanned(
-            string NodeId, bool IsLeaf, string[] ChildrenIds, string Rationale, string PlannedAt);
+            string NodeId,
+            bool IsLeaf,
+            string[] ChildrenIds,
+            string Rationale,
+            string PlannedAt,
+            string[]? ChildGoals = null);
 
         [EventType("V1.WorkflowNodeCompleted")]
         public record WorkflowNodeCompleted(string NodeId, string Answer, string CompletedAt);
@@ -56,6 +61,7 @@ public record WorkflowNodeState : State<WorkflowNodeState>
     public WorkflowNodeStatus Status { get; init; } = WorkflowNodeStatus.None;
     public bool IsLeaf { get; init; }
     public string[] ChildrenIds { get; init; } = [];
+    public string[] ChildGoals { get; init; } = [];
     public string Rationale { get; init; } = "";
     public string? Answer { get; init; }
     public string CreatedAt { get; init; } = "";
@@ -79,6 +85,7 @@ public record WorkflowNodeState : State<WorkflowNodeState>
             Status = WorkflowNodeStatus.Planned,
             IsLeaf = e.IsLeaf,
             ChildrenIds = e.ChildrenIds,
+            ChildGoals = e.ChildGoals ?? [],
             Rationale = e.Rationale
         });
 
@@ -94,7 +101,12 @@ public record WorkflowNodeState : State<WorkflowNodeState>
 
 public record CreateWorkflowNode(
     string NodeId, string RunId, string? ParentNodeId, int Depth, int Order, string Goal);
-public record PlanWorkflowNode(string NodeId, bool IsLeaf, string[] ChildrenIds, string Rationale);
+public record PlanWorkflowNode(
+    string NodeId,
+    bool IsLeaf,
+    string[] ChildrenIds,
+    string Rationale,
+    string[]? ChildGoals = null);
 public record CompleteWorkflowNode(string NodeId, string Answer);
 public record FailWorkflowNode(string NodeId, string Reason);
 
@@ -142,8 +154,23 @@ public sealed class WorkflowNodeCommandService : CommandService<WorkflowNodeStat
         if (!cmd.IsLeaf && cmd.ChildrenIds.Length == 0)
             throw new DomainException(
                 "PlanWorkflowNode: a non-leaf node must declare at least one child.");
+        var childGoals = cmd.ChildGoals ?? [];
+        if (cmd.IsLeaf && childGoals.Length > 0)
+            throw new DomainException(
+                "PlanWorkflowNode: a leaf node cannot declare child goals.");
+        if (!cmd.IsLeaf && childGoals.Length != cmd.ChildrenIds.Length)
+            throw new DomainException(
+                "PlanWorkflowNode: each child id must have a persisted goal.");
+        if (childGoals.Any(string.IsNullOrWhiteSpace))
+            throw new DomainException(
+                "PlanWorkflowNode: child goals cannot be empty.");
         yield return new WorkflowNodeEvents.V1.WorkflowNodePlanned(
-            cmd.NodeId, cmd.IsLeaf, cmd.ChildrenIds, cmd.Rationale, Now);
+            cmd.NodeId,
+            cmd.IsLeaf,
+            cmd.ChildrenIds,
+            cmd.Rationale,
+            Now,
+            childGoals);
     }
 
     static IEnumerable<object> Complete(WorkflowNodeState state, object[] _, CompleteWorkflowNode cmd)

@@ -33,6 +33,7 @@ public class RecursiveWorkflowRunnerTests
         return new RecursiveWorkflowRunner(
             new WorkflowRunCommandService(store),
             new WorkflowNodeCommandService(store),
+            new WorkflowExecutionReader(store),
             new PlannerAgent(llm, manifest, NullLogger<PlannerAgent>.Instance),
             new WorkerAgent(llm, manifest, NullLogger<WorkerAgent>.Instance),
             new SynthesizerAgent(llm, manifest, NullLogger<SynthesizerAgent>.Instance),
@@ -130,6 +131,145 @@ public class RecursiveWorkflowRunnerTests
         Assert.Equal(WorkflowRunStatus.Failed, runState.Status);
     }
 
+    [Fact]
+    public async Task Resume_PlannedParent_CreatesMissingChildrenFromPersistedGoals()
+    {
+        var store = new InMemoryEventStore();
+        var runs = new WorkflowRunCommandService(store);
+        var nodes = new WorkflowNodeCommandService(store);
+        await Success(runs.Handle(
+            new StartWorkflowRun("run-missing-children", "objetivo raíz", "root"),
+            CancellationToken.None));
+        await Success(nodes.Handle(
+            new CreateWorkflowNode("root", "run-missing-children", null, 0, 0, "objetivo raíz"),
+            CancellationToken.None));
+        await Success(nodes.Handle(
+            new PlanWorkflowNode(
+                "root",
+                IsLeaf: false,
+                ["child-a", "child-b"],
+                "dividir",
+                ["objetivo A", "objetivo B"]),
+            CancellationToken.None));
+
+        var llm = new CountingLlmGateway(new FakeLlmGateway(
+        [
+            """{"isLeaf": true, "subGoals": [], "rationale": "directo A"}""",
+            "respuesta A",
+            """{"isLeaf": true, "subGoals": [], "rationale": "directo B"}""",
+            "respuesta B",
+            "síntesis recuperada",
+        ]));
+        var result = await BuildRunner(store, llm).ResumeAsync(
+            "run-missing-children",
+            CancellationToken.None);
+
+        Assert.Equal(5, llm.Calls);
+        Assert.Equal(3, result.NodeCount);
+        Assert.Equal(["objetivo A", "objetivo B"], result.Root.Children.Select(x => x.Goal));
+        Assert.Equal("síntesis recuperada", result.FinalAnswer);
+        Assert.Contains(result.Steps, step => step.Contains("recreado desde el plan persistido"));
+        Assert.Equal(11, await CountEventsAsync(store, result));
+    }
+
+    [Fact]
+    public async Task Resume_RunCreatedWithoutRoot_RecreatesRootFromRunEvent()
+    {
+        var store = new InMemoryEventStore();
+        await Success(new WorkflowRunCommandService(store).Handle(
+            new StartWorkflowRun("run-missing-root", "objetivo durable", "root-missing"),
+            CancellationToken.None));
+        var llm = new CountingLlmGateway(new FakeLlmGateway(
+        [
+            """{"isLeaf": true, "subGoals": [], "rationale": "directo"}""",
+            "respuesta recuperada desde el run",
+        ]));
+
+        var result = await BuildRunner(store, llm).ResumeAsync(
+            "run-missing-root",
+            CancellationToken.None);
+
+        Assert.Equal(2, llm.Calls);
+        Assert.Equal("root-missing", result.Root.NodeId);
+        Assert.Equal("objetivo durable", result.Root.Goal);
+        Assert.Equal("respuesta recuperada desde el run", result.FinalAnswer);
+        Assert.Contains(result.Steps, step => step.Contains("raíz recreada"));
+        Assert.Equal(5, await CountEventsAsync(store, result));
+    }
+
+    [Fact]
+    public async Task Resume_AfterCancellation_SkipsCompletedSubtree()
+    {
+        var store = new InMemoryEventStore();
+        using var cts = new CancellationTokenSource();
+        var interruptedLlm = new CancelOnCallLlmGateway(
+            new FakeLlmGateway(
+            [
+                """{"isLeaf": false, "subGoals": ["Sub 1", "Sub 2"], "rationale": "dividir"}""",
+                """{"isLeaf": true, "subGoals": [], "rationale": "directo"}""",
+                "respuesta ya completada",
+            ]),
+            cts,
+            cancelOnCall: 4);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            BuildRunner(store, interruptedLlm).RunAsync(
+                "run-interrupted",
+                "objetivo",
+                cts.Token));
+
+        var interruptedRun = await LoadRunStateAsync(store, "run-interrupted");
+        Assert.Equal(WorkflowRunStatus.Running, interruptedRun.Status);
+        var (_, rootBeforeResume) = await LoadNodeStateAsync(
+            store,
+            $"workflow-node-{interruptedRun.RootNodeId}");
+        Assert.Equal(WorkflowNodeStatus.Planned, rootBeforeResume.Status);
+        var (_, firstChildBeforeResume) = await LoadNodeStateAsync(
+            store,
+            $"workflow-node-{rootBeforeResume.ChildrenIds[0]}");
+        Assert.Equal(WorkflowNodeStatus.Completed, firstChildBeforeResume.Status);
+
+        var recoveryLlm = new CountingLlmGateway(new FakeLlmGateway(
+        [
+            """{"isLeaf": true, "subGoals": [], "rationale": "directo"}""",
+            "respuesta recuperada",
+            "síntesis final después del resume",
+        ]));
+        var resumed = await BuildRunner(store, recoveryLlm).ResumeAsync(
+            "run-interrupted",
+            CancellationToken.None);
+
+        Assert.Equal(3, recoveryLlm.Calls);
+        Assert.Equal("respuesta ya completada", resumed.Root.Children[0].Answer);
+        Assert.Equal("respuesta recuperada", resumed.Root.Children[1].Answer);
+        Assert.Equal("síntesis final después del resume", resumed.FinalAnswer);
+        Assert.Contains(resumed.Steps, step => step.Contains("resultado restaurado desde eventos"));
+        Assert.Equal(11, await CountEventsAsync(store, resumed));
+    }
+
+    [Fact]
+    public async Task Resume_CompletedRun_ReconstructsTreeWithoutCallingLlmOrAppendingEvents()
+    {
+        var store = new InMemoryEventStore();
+        var original = await BuildRunner(store, new FakeLlmGateway(
+        [
+            """{"isLeaf": false, "subGoals": ["Sub 1"], "rationale": "dividir"}""",
+            """{"isLeaf": true, "subGoals": [], "rationale": "directo"}""",
+            "respuesta persistida",
+            "síntesis persistida",
+        ])).RunAsync("run-completed-resume", "objetivo", CancellationToken.None);
+        var eventsBefore = await CountEventsAsync(store, original);
+
+        var restored = await BuildRunner(store, new ThrowingLlmGateway()).ResumeAsync(
+            "run-completed-resume",
+            CancellationToken.None);
+
+        Assert.Equal(original.FinalAnswer, restored.FinalAnswer);
+        Assert.Equal(original.NodeCount, restored.NodeCount);
+        Assert.Equal(eventsBefore, await CountEventsAsync(store, restored));
+        Assert.Contains(restored.Steps, step => step.Contains("cero llamadas a agentes"));
+    }
+
     // ── Helpers de lectura del event store ───────────────────────────────────
 
     // El analyzer EVTC001 se queja de When(object?) — acá es intencional:
@@ -187,6 +327,45 @@ public class RecursiveWorkflowRunnerTests
         if (node.IsLeaf) leaves.Add(node);
         foreach (var child in node.Children) leaves.AddRange(CollectLeaves(child));
         return leaves;
+    }
+
+    static async Task<TState> Success<TState>(Task<Result<TState>> pending)
+        where TState : class, new()
+    {
+        var result = await pending;
+        Assert.True(result.Success, result.Exception?.Message);
+        Assert.True(result.TryGet(out var ok));
+        return ok.State;
+    }
+
+    sealed class CountingLlmGateway(ILlmGateway inner) : ILlmGateway
+    {
+        public int Calls { get; private set; }
+
+        public Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken ct)
+        {
+            Calls++;
+            return inner.CompleteAsync(request, ct);
+        }
+    }
+
+    sealed class CancelOnCallLlmGateway(
+        ILlmGateway inner,
+        CancellationTokenSource cancellation,
+        int cancelOnCall) : ILlmGateway
+    {
+        int _calls;
+
+        public Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken ct)
+        {
+            _calls++;
+            if (_calls == cancelOnCall)
+            {
+                cancellation.Cancel();
+                ct.ThrowIfCancellationRequested();
+            }
+            return inner.CompleteAsync(request, ct);
+        }
     }
 
     /// <summary>Gateway que falla SIEMPRE (simula un provider caído o timeout).</summary>

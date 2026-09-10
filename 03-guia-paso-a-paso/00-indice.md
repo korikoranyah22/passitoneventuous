@@ -15,7 +15,7 @@ como referencia o escribirlos de cero), y un *probalo*.
 | Paso | Qué construís | Archivos clave |
 |---|---|---|
 | [01 · Entorno](01-entorno.md) | Requisitos y comandos base | — |
-| [02 · Solución y proyectos](02-solucion-y-proyectos.md) | La solución .NET con 5 proyectos | `CursoAgentes.slnx`, `*.csproj` |
+| [02 · Solución y proyectos](02-solucion-y-proyectos.md) | 6 proyectos de producto + tests | `CursoAgentes.slnx`, `*.csproj` |
 | [03 · Aggregate WorkflowRun](03-aggregate-workflowrun.md) | El aggregate del ciclo de vida del run | `src/CursoAgentes.Domain/Workflow/WorkflowRun.cs` |
 | [04 · Aggregate WorkflowNode](04-aggregate-workflownode.md) | El aggregate de un nodo del árbol | `src/CursoAgentes.Domain/Workflow/WorkflowNode.cs` |
 | [05 · Persistencia Eventuous + Postgres](05-persistencia-eventuous-postgres.md) | El wiring del event store | `src/CursoAgentes.Infrastructure/DependencyInjection.cs` |
@@ -23,8 +23,11 @@ como referencia o escribirlos de cero), y un *probalo*.
 | [07 · Motor recursivo](07-motor-recursivo.md) | El runner que orquesta el árbol | `src/CursoAgentes.Engine/Workflow/RecursiveWorkflowRunner.cs` |
 | [08 · Proyecciones y read model](08-proyecciones-read-model.md) | La foto actual de los datos | `src/CursoAgentes.Infrastructure/Projections/` |
 | [09 · App de demostración](09-app-demo.md) | La demo end-to-end por consola | `src/CursoAgentes.App/Program.cs` |
-| [10 · Tests](10-tests.md) | 29 tests: estado, guards, motor, gateway | `tests/CursoAgentes.Tests/` |
+| [10 · Tests](10-tests.md) | 72 tests: 69 del núcleo + 3 del puente MiyuAgents → Eventuous | `tests/CursoAgentes.Tests/` |
 | [11 · Estado del ejemplo](11-estado-del-ejemplo.md) | Qué anda, qué falta, por dónde seguir | — |
+| [12 · Caso práctico híbrido](12-caso-practico-hibrido.md) | Comparar pipeline y grafo fijo al recolectar, criticar y actuar | MiyuAgents `routing-workflow/` + `fixed-node-workflow/` |
+| [13 · API asíncrona](13-api-asincrona-y-resume.md) | Aceptar con `202`, ejecutar en background, consultar árbol/auditoría y reanudar | `src/CursoAgentes.Api/` |
+| [14 · Auditoría defensiva electoral](14-auditoria-defensiva-electoral.md) | Comparar pipeline, nodos fijos y recursión acotada sobre telemetría sintética | MiyuAgents `election-defense/` |
 
 ## Progresión mental
 
@@ -34,7 +37,15 @@ como referencia o escribirlos de cero), y un *probalo*.
 3. **Paso 6**: definís el puerto del LLM y sus adaptadores (fake + real).
 4. **Paso 7**: el motor que une dominio + LLM con recursión.
 5. **Pasos 8-9**: read model y demo.
-6. **Pasos 10-11**: verificación y cierre.
+6. **Pasos 10-11**: verificación de la base recursiva.
+7. **Paso 12**: aplicación práctica comparando pipeline, nodos fijos y objetivos
+   recursivos, con routing, crítica y decisión determinista; después,
+   adaptación al árbol event-sourced.
+8. **Paso 13**: llevar el motor durable a un host HTTP sin bloquear el request
+   ni confundir la cola local con la fuente de verdad.
+9. **Paso 14**: aplicar las tres formas de control a una misión defensiva de
+   alto riesgo, manteniendo evidencia, política e intervención humana fuera del
+   juicio autónomo del LLM.
 
 > ⚠️ **Ruta crítica**: los pasos 3-4 (dominio) y 7 (motor) son el corazón. Si
 > te queda poco tiempo, priorizalos; el resto es infraestructura que podés

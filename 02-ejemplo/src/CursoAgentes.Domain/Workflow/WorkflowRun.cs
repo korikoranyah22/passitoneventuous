@@ -24,6 +24,10 @@ public static class WorkflowRunEvents
         public record WorkflowRunCreated(
             string RunId, string Goal, string RootNodeId, string CreatedAt);
 
+        [EventType("V1.WorkflowRunExecutionRequested")]
+        public record WorkflowRunExecutionRequested(
+            string RunId, string RequestId, string RequestedAt);
+
         [EventType("V1.WorkflowRunCompleted")]
         public record WorkflowRunCompleted(string RunId, string Answer, string CompletedAt);
 
@@ -40,6 +44,8 @@ public record WorkflowRunState : State<WorkflowRunState>
     // Default = None (no Running): un aggregate recién instanciado (sin eventos)
     // NO representa un run válido — los guards rechazan comandos sobre él.
     public WorkflowRunStatus Status { get; init; } = WorkflowRunStatus.None;
+    public bool ExecutionRequested { get; init; }
+    public string? ExecutionRequestId { get; init; }
     public string? Answer { get; init; }
     public string CreatedAt { get; init; } = "";
 
@@ -60,11 +66,18 @@ public record WorkflowRunState : State<WorkflowRunState>
             Answer = e.Answer
         });
 
+        On<WorkflowRunEvents.V1.WorkflowRunExecutionRequested>((s, e) => s with
+        {
+            ExecutionRequested = true,
+            ExecutionRequestId = e.RequestId
+        });
+
         On<WorkflowRunEvents.V1.WorkflowRunFailed>((s, _) => s with { Status = WorkflowRunStatus.Failed });
     }
 }
 
 public record StartWorkflowRun(string RunId, string Goal, string RootNodeId);
+public record RequestWorkflowRunExecution(string RunId, string RequestId);
 public record CompleteWorkflowRun(string RunId, string Answer);
 public record FailWorkflowRun(string RunId, string Reason);
 
@@ -76,6 +89,8 @@ public sealed class WorkflowRunCommandService : CommandService<WorkflowRunState>
     {
         On<StartWorkflowRun>().InState(ExpectedState.New)
             .GetStream(cmd => Stream(cmd.RunId)).Act(Start);
+        On<RequestWorkflowRunExecution>().InState(ExpectedState.Existing)
+            .GetStream(cmd => Stream(cmd.RunId)).Act(RequestExecution);
         On<CompleteWorkflowRun>().InState(ExpectedState.Existing)
             .GetStream(cmd => Stream(cmd.RunId)).Act(Complete);
         On<FailWorkflowRun>().InState(ExpectedState.Existing)
@@ -104,6 +119,31 @@ public sealed class WorkflowRunCommandService : CommandService<WorkflowRunState>
         if (string.IsNullOrWhiteSpace(cmd.Answer))
             throw new DomainException("CompleteWorkflowRun: Answer required.");
         yield return new WorkflowRunEvents.V1.WorkflowRunCompleted(cmd.RunId, cmd.Answer, Now);
+    }
+
+    static IEnumerable<object> RequestExecution(
+        WorkflowRunState state,
+        object[] _,
+        RequestWorkflowRunExecution cmd)
+    {
+        if (state.Status != WorkflowRunStatus.Running)
+            throw new DomainException(
+                $"RequestWorkflowRunExecution: only Running can be requested (was {state.Status}).");
+        if (string.IsNullOrWhiteSpace(cmd.RequestId))
+            throw new DomainException("RequestWorkflowRunExecution: RequestId required.");
+
+        var requestId = cmd.RequestId.Trim();
+        if (state.ExecutionRequested)
+        {
+            if (state.ExecutionRequestId == requestId) yield break;
+            throw new DomainException(
+                "RequestWorkflowRunExecution: a different execution request is already active.");
+        }
+
+        yield return new WorkflowRunEvents.V1.WorkflowRunExecutionRequested(
+            cmd.RunId,
+            requestId,
+            Now);
     }
 
     static IEnumerable<object> Fail(WorkflowRunState state, object[] _, FailWorkflowRun cmd)

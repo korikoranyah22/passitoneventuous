@@ -7,8 +7,9 @@
 
 ## 2.1 Las cuatro piezas de un aggregate
 
-En el ejemplo hay dos aggregates: `WorkflowRun` (el ciclo de vida del run) y
-`WorkflowNode` (un nodo del árbol). Cada uno tiene las mismas cuatro piezas:
+En la base recursiva del ejemplo hay dos aggregates: `WorkflowRun` (el ciclo de
+vida del run) y `WorkflowNode` (un nodo del árbol). El caso práctico del paso 12
+agrega un tercero, `IncidentInvestigation`, con las mismas cuatro piezas:
 
 ### 1. Eventos — `WorkflowRunEvents`
 
@@ -19,6 +20,9 @@ public static class WorkflowRunEvents
     {
         [EventType("V1.WorkflowRunCreated")]
         public record WorkflowRunCreated(string RunId, string Goal, string RootNodeId, string CreatedAt);
+
+        [EventType("V1.WorkflowRunExecutionRequested")]
+        public record WorkflowRunExecutionRequested(string RunId, string RequestId, string RequestedAt);
 
         [EventType("V1.WorkflowRunCompleted")]
         public record WorkflowRunCompleted(string RunId, string Answer, string CompletedAt);
@@ -50,6 +54,10 @@ public record WorkflowRunState : State<WorkflowRunState>
             RunId = e.RunId, Goal = e.Goal, RootNodeId = e.RootNodeId,
             Status = WorkflowRunStatus.Running, CreatedAt = e.CreatedAt
         });
+        On<WorkflowRunEvents.V1.WorkflowRunExecutionRequested>((s, e) => s with
+        {
+            ExecutionRequested = true, ExecutionRequestId = e.RequestId
+        });
         On<WorkflowRunEvents.V1.WorkflowRunCompleted>((s, e) => s with { Status = ..., Answer = e.Answer });
         On<WorkflowRunEvents.V1.WorkflowRunFailed>((s, _) => s with { Status = ... });
     }
@@ -65,6 +73,7 @@ public record WorkflowRunState : State<WorkflowRunState>
 
 ```csharp
 public record StartWorkflowRun(string RunId, string Goal, string RootNodeId);
+public record RequestWorkflowRunExecution(string RunId, string RequestId);
 public record CompleteWorkflowRun(string RunId, string Answer);
 public record FailWorkflowRun(string RunId, string Reason);
 ```
@@ -81,6 +90,8 @@ public sealed class WorkflowRunCommandService : CommandService<WorkflowRunState>
     {
         On<StartWorkflowRun>().InState(ExpectedState.New)
             .GetStream(cmd => Stream(cmd.RunId)).Act(Start);
+        On<RequestWorkflowRunExecution>().InState(ExpectedState.Existing)
+            .GetStream(cmd => Stream(cmd.RunId)).Act(RequestExecution);
         On<CompleteWorkflowRun>().InState(ExpectedState.Existing)
             .GetStream(cmd => Stream(cmd.RunId)).Act(Complete);
         On<FailWorkflowRun>().InState(ExpectedState.Existing)
@@ -109,6 +120,11 @@ public sealed class WorkflowRunCommandService : CommandService<WorkflowRunState>
 - **`throw new DomainException(...)`**: el guard rechazó el comando. El command
   service lo captura y devuelve un `Result` con `Success = false` — no una
   excepción escapando.
+
+`RequestWorkflowRunExecution` merece atención: no ejecuta el workflow. Persiste
+una solicitud identificada por `RequestId`; repetir el mismo pedido no agrega
+otro evento y usar un ID distinto mientras hay uno activo se rechaza. El worker
+puede recuperar esa intención durable aunque la cola local se pierda.
 
 ## 2.2 El flujo completo de un comando
 

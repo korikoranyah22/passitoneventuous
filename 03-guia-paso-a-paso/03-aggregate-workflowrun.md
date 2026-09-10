@@ -3,9 +3,10 @@
 ## Objetivo
 
 Modelar el **ciclo de vida de una ejecución del workflow**: se crea con un
-objetivo, y termina `Completed` (con respuesta final) o `Failed` (con motivo).
-Es el aggregate más chico del ejemplo — y el que introduce las cuatro piezas de
-Eventuous que después repetís en todos lados.
+objetivo, registra durablemente si se solicitó su ejecución y termina
+`Completed` (con respuesta final) o `Failed` (con motivo). Es el aggregate más
+chico del ejemplo — y el que introduce las cuatro piezas de Eventuous que
+después repetís en todos lados.
 
 ## Concepto
 
@@ -15,6 +16,8 @@ Un run es una **máquina de estados**:
 None ──Start──► Running ──Complete──► Completed
                   │
                   └────Fail────► Failed
+
+Running ──RequestExecution(requestId)──► Running + ExecutionRequested
 ```
 
 - `None` es el estado por defecto del aggregate **recién instanciado** (no
@@ -22,6 +25,8 @@ None ──Start──► Running ──Complete──► Completed
   inexistente es rechazado (lección 2.3 de la teoría).
 - Las transiciones inválidas (completar dos veces, fallar un run completado)
   son rechazadas por **guards** del dominio.
+- `RequestExecution` no llama al motor: deja una intención durable e idempotente
+  para que un worker pueda recuperarla después de una caída.
 
 ## Código (archivo `src/CursoAgentes.Domain/Workflow/WorkflowRun.cs`)
 
@@ -34,6 +39,9 @@ public static class WorkflowRunEvents
     {
         [EventType("V1.WorkflowRunCreated")]
         public record WorkflowRunCreated(string RunId, string Goal, string RootNodeId, string CreatedAt);
+
+        [EventType("V1.WorkflowRunExecutionRequested")]
+        public record WorkflowRunExecutionRequested(string RunId, string RequestId, string RequestedAt);
 
         [EventType("V1.WorkflowRunCompleted")]
         public record WorkflowRunCompleted(string RunId, string Answer, string CompletedAt);
@@ -53,6 +61,8 @@ public record WorkflowRunState : State<WorkflowRunState>
     public string Goal { get; init; } = "";
     public string RootNodeId { get; init; } = "";
     public WorkflowRunStatus Status { get; init; } = WorkflowRunStatus.None;  // ← ¡default inválido!
+    public bool ExecutionRequested { get; init; }
+    public string? ExecutionRequestId { get; init; }
     public string? Answer { get; init; }
     public string CreatedAt { get; init; } = "";
 
@@ -67,6 +77,10 @@ public record WorkflowRunState : State<WorkflowRunState>
         {
             Status = WorkflowRunStatus.Completed, Answer = e.Answer
         });
+        On<WorkflowRunEvents.V1.WorkflowRunExecutionRequested>((s, e) => s with
+        {
+            ExecutionRequested = true, ExecutionRequestId = e.RequestId
+        });
         On<WorkflowRunEvents.V1.WorkflowRunFailed>((s, _) => s with { Status = WorkflowRunStatus.Failed });
     }
 }
@@ -76,6 +90,7 @@ public record WorkflowRunState : State<WorkflowRunState>
 
 ```csharp
 public record StartWorkflowRun(string RunId, string Goal, string RootNodeId);
+public record RequestWorkflowRunExecution(string RunId, string RequestId);
 public record CompleteWorkflowRun(string RunId, string Answer);
 public record FailWorkflowRun(string RunId, string Reason);
 ```
@@ -89,6 +104,8 @@ public sealed class WorkflowRunCommandService : CommandService<WorkflowRunState>
     {
         On<StartWorkflowRun>().InState(ExpectedState.New)
             .GetStream(cmd => Stream(cmd.RunId)).Act(Start);
+        On<RequestWorkflowRunExecution>().InState(ExpectedState.Existing)
+            .GetStream(cmd => Stream(cmd.RunId)).Act(RequestExecution);
         On<CompleteWorkflowRun>().InState(ExpectedState.Existing)
             .GetStream(cmd => Stream(cmd.RunId)).Act(Complete);
         On<FailWorkflowRun>().InState(ExpectedState.Existing)
@@ -126,12 +143,12 @@ public enum WorkflowRunStatus
 ## Probalo
 
 ```bash
-dotnet test --filter "FullyQualifiedName~WorkflowRunTests"
+dotnet test --filter "FullyQualifiedName~WorkflowRunStateTests|FullyQualifiedName~WorkflowRunCommandServiceTests"
 ```
 
 Cubre: transiciones de estado (puras, con `.When(evento)`) y guards del command
-service (completar run inexistente, completar dos veces, fallar tras completar,
-etc.). Estos tests **no tocan Postgres** — el `InMemoryEventStore` de
+service (completar run inexistente, solicitud repetida o conflictiva, completar
+dos veces, fallar tras completar, etc.). Estos tests **no tocan Postgres** — el `InMemoryEventStore` de
 `tests/CursoAgentes.Tests/Testing/` implementa `IEventStore` a mano.
 
 ---

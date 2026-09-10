@@ -1,8 +1,14 @@
+using CursoAgentes.Domain.Incidents;
 using CursoAgentes.Domain.Workflow;
+using CursoAgentes.Engine.Incidents;
 using CursoAgentes.Engine.Llm;
 using CursoAgentes.Engine.Workflow;
+using CursoAgentes.Engine.Coordination;
+using CursoAgentes.Infrastructure.Coordination;
+using CursoAgentes.Infrastructure.Incidents;
 using CursoAgentes.Infrastructure.Llm;
 using CursoAgentes.Infrastructure.Projections;
+using CursoAgentes.Infrastructure.Workflow;
 using Eventuous;
 using Eventuous.Extensions;
 using Eventuous.Postgresql;
@@ -39,10 +45,17 @@ public static class ServiceCollectionExtensions
         // ── Opciones ─────────────────────────────────────────────────────────
         services.Configure<WorkflowManifest>(configuration.GetSection("Workflow"));
         services.Configure<LlmGatewayOptions>(configuration.GetSection("Llm"));
+        services.Configure<IncidentActionHttpOptions>(configuration.GetSection("IncidentAction"));
+        services.Configure<IncidentActionReactionOptions>(
+            configuration.GetSection("IncidentAction:Retry"));
         // Los agentes toman WorkflowManifest directo (no IOptions): exponemos el
         // valor bindeado como singleton.
         services.AddSingleton(sp =>
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<WorkflowManifest>>().Value);
+        services.AddSingleton(sp =>
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<IncidentActionHttpOptions>>().Value);
+        services.AddSingleton(sp =>
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<IncidentActionReactionOptions>>().Value);
 
         // ── Eventuous + PostgreSQL ───────────────────────────────────────────
         // initializeDatabase: true crea el schema del event store (tablas
@@ -53,10 +66,48 @@ public static class ServiceCollectionExtensions
         services.AddEventuousPostgres(connectionString, EventStoreSchema, initializeDatabase: true);
         services.AddEventStore<PostgresStore>();
         services.AddPostgresCheckpointStore();
+        services.AddSingleton<IExecutionLeaseStore, PostgresExecutionLeaseStore>();
 
         // ── Command services (aggregates) ────────────────────────────────────
         services.AddSingleton<WorkflowRunCommandService>();
         services.AddSingleton<WorkflowNodeCommandService>();
+        services.AddSingleton<WorkflowExecutionReader>();
+        services.AddSingleton<WorkflowExecutionRequestService>();
+        services.AddSingleton<IncidentInvestigationCommandService>();
+
+        // Efecto externo del caso práctico. Este adaptador es deliberadamente
+        // local; un host real lo reemplaza por HTTP manteniendo la idempotencia.
+        services.AddSingleton<InMemoryIncidentActionPort>();
+        services.AddHttpClient("IncidentAction", (provider, client) =>
+        {
+            var options = provider.GetRequiredService<IncidentActionHttpOptions>();
+            if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseAddress))
+                throw new InvalidOperationException("IncidentAction:BaseUrl must be absolute.");
+            if (options.Timeout <= TimeSpan.Zero)
+                throw new InvalidOperationException("IncidentAction:Timeout must be positive.");
+            client.BaseAddress = baseAddress;
+            client.Timeout = options.Timeout;
+        });
+        var actionProvider = configuration.GetValue<string>("IncidentAction:Provider")
+            ?? "InMemory";
+        if (actionProvider.Equals("Http", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddSingleton<IIncidentActionPort>(provider =>
+                new HttpIncidentActionPort(
+                    provider.GetRequiredService<IHttpClientFactory>().CreateClient("IncidentAction"),
+                    provider.GetRequiredService<IncidentActionHttpOptions>()));
+        }
+        else
+        {
+            services.AddSingleton<IIncidentActionPort>(provider =>
+                provider.GetRequiredService<InMemoryIncidentActionPort>());
+        }
+        services.AddSingleton<IncidentActionHandler>();
+        services.AddSingleton<IncidentActionParkingHandler>();
+        services.AddSingleton<IncidentInvestigationStateReader>();
+        services.AddSingleton<IncidentActionReactionProcessor>();
+        services.AddSingleton<IncidentActionRetryProcess>();
+        services.AddSingleton<IncidentInvestigationProcess>();
 
         // ── LLM: el puerto se enchufa con el adaptador que diga la config ───
         services.AddHttpClient<OpenAiCompatibleGateway>(client =>
@@ -88,6 +139,7 @@ public static class ServiceCollectionExtensions
 
         // ── Read model: proyección + suscripción a todos los streams ────────
         services.AddSingleton<WorkflowReadModelStore>();
+        services.AddSingleton<WorkflowAuditStore>();
         services.AddSingleton<WorkflowReadModelProjection>();
         services.AddSubscription<PostgresAllStreamSubscription, PostgresAllStreamSubscriptionOptions>(
             "WorkflowReadModel",
@@ -95,13 +147,30 @@ public static class ServiceCollectionExtensions
                 .Configure(options => ConfigureCheckpoint(options, "WorkflowReadModel"))
                 .AddEventHandler<WorkflowReadModelProjection>());
 
+        services.AddSingleton<IncidentReadModelStore>();
+        services.AddSingleton<IncidentReadModelProjection>();
+        services.AddSubscription<PostgresAllStreamSubscription, PostgresAllStreamSubscriptionOptions>(
+            "IncidentReadModel",
+            builder => builder
+                .Configure(options => ConfigureCheckpoint(options, "IncidentReadModel"))
+                .AddEventHandler<IncidentReadModelProjection>());
+
+        // Reacción de negocio separada del read model. El checkpoint propio
+        // evita considerar procesada una decisión antes de confirmar su efecto.
+        services.AddSingleton<IncidentActionReaction>();
+        services.AddSubscription<PostgresAllStreamSubscription, PostgresAllStreamSubscriptionOptions>(
+            "IncidentActions",
+            builder => builder
+                .Configure(options => ConfigureCheckpoint(options, "IncidentActions"))
+                .AddEventHandler<IncidentActionReaction>());
+
         return services;
     }
 
     /// <summary>
     /// Política de checkpoint agresiva: flush después de CADA evento procesado.
-    /// En producción esto minimiza el trabajo de replay tras un crash (el repo
-    /// real de AngelNaira usa exactamente esta configuración).
+    /// En producción esto minimiza el trabajo de replay tras un crash. El
+    /// tamaño y la demora son decisiones operativas configurables.
     /// </summary>
     static void ConfigureCheckpoint(PostgresAllStreamSubscriptionOptions options, string id)
     {

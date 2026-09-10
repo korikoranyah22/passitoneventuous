@@ -1,9 +1,11 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/CursoAgentes.App/CursoAgentes.App.csproj" />
+    <Project Path="src/CursoAgentes.Api/CursoAgentes.Api.csproj" />
     <Project Path="src/CursoAgentes.Domain/CursoAgentes.Domain.csproj" />
     <Project Path="src/CursoAgentes.Engine/CursoAgentes.Engine.csproj" />
     <Project Path="src/CursoAgentes.Infrastructure/CursoAgentes.Infrastructure.csproj" />
+    <Project Path="src/CursoAgentes.MiyuAgents/CursoAgentes.MiyuAgents.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CursoAgentes.Tests/CursoAgentes.Tests.csproj" />

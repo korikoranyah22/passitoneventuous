@@ -37,6 +37,8 @@ public sealed class WorkflowReadModelProjection : EventHandler
         // Runs
         On<WorkflowRunEvents.V1.WorkflowRunCreated>(ctx =>
             new ValueTask(_store.UpsertRunAsync(ctx.Message, ctx.CancellationToken)));
+        On<WorkflowRunEvents.V1.WorkflowRunExecutionRequested>(ctx =>
+            new ValueTask(_store.UpsertRunAsync(ctx.Message, ctx.CancellationToken)));
         On<WorkflowRunEvents.V1.WorkflowRunCompleted>(ctx =>
             new ValueTask(_store.UpsertRunAsync(ctx.Message, ctx.CancellationToken)));
         On<WorkflowRunEvents.V1.WorkflowRunFailed>(ctx =>
@@ -67,6 +69,8 @@ CREATE TABLE IF NOT EXISTS curso_readmodel.workflow_runs (
     root_node_id   TEXT NOT NULL,
     status         TEXT NOT NULL,
     answer         TEXT,
+    execution_requested BOOLEAN NOT NULL DEFAULT FALSE,
+    execution_request_id TEXT,
     created_at     TIMESTAMPTZ NOT NULL,
     completed_at   TIMESTAMPTZ
 );

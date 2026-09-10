@@ -68,10 +68,12 @@ public sealed record AgentContext
 Cada paso lee del contexto, lo enriquece y lo pasa al siguiente. En el ejemplo
 cada ejecución recursiva arma su propio contexto (con su nodo y su objetivo).
 
-### El workflow como datos
+### La política configurable del workflow
 
-Un workflow bien diseñado es **config, no código**: el mismo motor corre
-cualquier workflow si cambiás el manifiesto.
+Un workflow bien diseñado separa el **motor estable** de la **política
+configurable**. El manifiesto permite cambiar límites, prompts y modelo sin
+recompilar; la topología y el comportamiento ejecutable siguen siendo código
+cuando corresponde.
 
 ```csharp
 public sealed record WorkflowManifest
@@ -94,9 +96,9 @@ tope de profundidad o los prompts **no toca una línea de código**.
 RunAsync(objetivo)
   ├─ crea WorkflowRun (evento WorkflowRunCreated)
   ├─ crea el nodo raíz (evento WorkflowNodeCreated)
-  └─ ExecuteNodeAsync(raíz)                    ← el patrón que se repite
+  └─ ResumeNodeAsync(raíz)                     ← el patrón que se repite
        ├─ Planner: ¿hoja o se divide?
-       ├─ si divide → para cada sub-objetivo: crea hijo + ExecuteNodeAsync(hijo)  ← recursión
+       ├─ si divide → para cada sub-objetivo: crea hijo + ResumeNodeAsync(hijo)  ← recursión
        │              después: Synthesizer integra las respuestas
        └─ si es hoja → Worker responde directo
   └─ completa WorkflowRun (evento WorkflowRunCompleted)

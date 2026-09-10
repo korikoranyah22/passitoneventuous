@@ -33,7 +33,7 @@ public sealed record AgentContext
         new Dictionary<string, string>();
 
     /// <summary>Bitácora legible del run (la imprime la demo).</summary>
-    public List<string> Steps { get; } = [];
+    public List<string> Steps { get; init; } = [];
 
     /// <summary>Metadatos libres (telemetría, tags, lo que cada workflow necesite).</summary>
     public Dictionary<string, object> Metadata { get; } = [];

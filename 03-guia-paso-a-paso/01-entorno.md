@@ -23,7 +23,7 @@ docker --version        # disponible
 # Compilar toda la solución (sin warnings en verde)
 dotnet build
 
-# Correr los 29 tests (NO necesitan Postgres)
+# Correr los 72 tests (69 core + 3 del puente Miyu; NO necesitan Postgres)
 dotnet test
 
 # Levantar Postgres (event store + read model en la misma base)
@@ -34,6 +34,11 @@ dotnet run --project src/CursoAgentes.App
 
 # Correr la demo con tu propio objetivo
 dotnet run --project src/CursoAgentes.App "¿Qué es un aggregate en DDD?"
+
+# Correr el caso práctico de incidentes
+dotnet run --project src/CursoAgentes.App -- --incident
+dotnet run --project src/CursoAgentes.App -- --incident-pipeline
+dotnet run --project src/CursoAgentes.App -- --incident-nodes
 
 # Parar y borrar Postgres (¡borra los eventos!)
 docker compose down -v

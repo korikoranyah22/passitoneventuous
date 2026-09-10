@@ -26,6 +26,16 @@
 - **Event sourcing para workflows**: el argumento de auditoría/reanudación
   para procesos largos aparece en Greg Young, *CQRS Documents* (2010).
 
+## MiyuAgents: continuación ejecutable
+
+- [Routing por capacidades, perfiles y resiliencia](../../angelnairav2_public/Packages/MiyuAgents/docs/routing.md).
+- [Pipeline híbrido de incidentes](../../angelnairav2_public/Packages/MiyuAgents/examples/routing-workflow/).
+- [El mismo caso como grafo fijo no recursivo](../../angelnairav2_public/Packages/MiyuAgents/examples/fixed-node-workflow/).
+- [Objetivos recursivos acotados](../../angelnairav2_public/Packages/MiyuAgents/examples/recursive-review-workflow/).
+- [Proveedores reales y configuración segura](../../angelnairav2_public/Packages/MiyuAgents/docs/providers.md).
+- [Ejemplo ejecutable con OpenAI, Azure OpenAI, Anthropic, Gemini y compatibles](../../angelnairav2_public/Packages/MiyuAgents/examples/real-providers/).
+- [Auditoría defensiva electoral: pipeline, nodos y recursión](../../angelnairav2_public/Packages/MiyuAgents/examples/election-defense/).
+
 ## El repo real que inspira el curso
 
 El ejemplo replica (a escala de curso) patrones de un sistema en producción que

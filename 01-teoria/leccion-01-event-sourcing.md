@@ -19,13 +19,16 @@ tabla solo sabe el presente.
 
 Para un workflow de agentes eso es grave:
 
-- **Auditoría**: ¿qué le pedimos al LLM? ¿cuántas llamadas se hicieron? ¿cuánto
-  costó cada una? El CRUD no lo sabe.
+- **Auditoría**: ¿qué decisiones tomó el workflow y qué artefactos produjo?
+  Una fila sobrescrita no conserva esa historia. Event sourcing permite
+  persistirla como eventos, siempre que el modelo incluya esos datos.
 - **Reanudación**: si el proceso muere a mitad de camino (el proveedor de LLM
   cayó, se cortó la luz), con CRUD solo tenemos un estado a medias, sin saber
   qué nodos alcanzaron a completarse.
-- **Depuración**: cuando el LLM produce una respuesta rara, necesitamos poder
-  reproducir *exactamente* qué inputs recibió. Con CRUD, no hay rastro.
+- **Depuración**: cuando el LLM produce una respuesta rara, necesitamos
+  inspeccionar los inputs y resultados relevantes. Eso exige diseñarlos como
+  parte de la historia; event sourcing no registra prompts o tokens por arte de
+  magia.
 
 ## 1.2 La idea: los eventos son la fuente de verdad
 
@@ -86,8 +89,10 @@ Es excesivo cuando:
 ## 📖 En el ejemplo
 
 Mirá el aggregate `WorkflowRun` en
-`02-ejemplo/src/CursoAgentes.Domain/Workflow/WorkflowRun.cs`: tres eventos
-(`WorkflowRunCreated`, `WorkflowRunCompleted`, `WorkflowRunFailed`), un stream
-por run (`workflow-run-{id}`), y un estado que se reconstruye aplicándolos.
+`02-ejemplo/src/CursoAgentes.Domain/Workflow/WorkflowRun.cs`: cuatro eventos
+(`WorkflowRunCreated`, `WorkflowRunExecutionRequested`, `WorkflowRunCompleted`
+y `WorkflowRunFailed`), un stream por run (`workflow-run-{id}`), y un estado
+que se reconstruye aplicándolos. La solicitud de ejecución hace durable el salto
+entre aceptar un run por HTTP y entregárselo al worker.
 
 En la lección 2 vemos cómo se modela esto con Eventuous.

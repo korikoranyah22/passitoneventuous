@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CursoAgentes.Domain\CursoAgentes.Domain.csproj" />
+    <ProjectReference Include="..\CursoAgentes.Engine\CursoAgentes.Engine.csproj" />
+    <ProjectReference Include="..\..\..\..\angelnairav2_public\Packages\MiyuAgents\examples\incident-response\IncidentResponseExample.csproj" />
+    <ProjectReference Include="..\..\..\..\angelnairav2_public\Packages\MiyuAgents\examples\routing-workflow\RoutingWorkflowExample.csproj" />
+    <ProjectReference Include="..\..\..\..\angelnairav2_public\Packages\MiyuAgents\examples\fixed-node-workflow\FixedNodeWorkflowExample.csproj" />
+  </ItemGroup>
+</Project>

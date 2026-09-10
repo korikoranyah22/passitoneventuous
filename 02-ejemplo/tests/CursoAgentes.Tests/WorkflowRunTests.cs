@@ -46,6 +46,19 @@ public class WorkflowRunStateTests
 
         Assert.Equal(WorkflowRunStatus.Failed, state.Status);
     }
+
+    [Fact]
+    public void WhenExecutionRequested_StateRemembersDurableRequest()
+    {
+        var state = Run().When(
+            new WorkflowRunEvents.V1.WorkflowRunExecutionRequested(
+                "run-1",
+                "execute-run-1",
+                Now));
+
+        Assert.True(state.ExecutionRequested);
+        Assert.Equal("execute-run-1", state.ExecutionRequestId);
+    }
 }
 
 public class WorkflowRunCommandServiceTests
@@ -132,5 +145,66 @@ public class WorkflowRunCommandServiceTests
         var again = await _commands.Handle(
             new StartWorkflowRun("run-1", "otro", "n-2"), CancellationToken.None);
         Assert.False(again.Success);
+    }
+
+    [Fact]
+    public async Task RequestExecution_WithSameRequestId_IsIdempotent()
+    {
+        await _commands.Handle(
+            new StartWorkflowRun("run-1", "objetivo", "n-1"),
+            CancellationToken.None);
+
+        var first = await _commands.Handle(
+            new RequestWorkflowRunExecution("run-1", "execute-run-1"),
+            CancellationToken.None);
+        var second = await _commands.Handle(
+            new RequestWorkflowRunExecution("run-1", "execute-run-1"),
+            CancellationToken.None);
+        var events = await _store.ReadEvents(
+            new Eventuous.StreamName("workflow-run-run-1"),
+            Eventuous.StreamReadPosition.Start,
+            int.MaxValue,
+            false,
+            CancellationToken.None);
+
+        Assert.True(first.Success, first.Exception?.Message);
+        Assert.True(second.Success, second.Exception?.Message);
+        Assert.Equal(2, events.Length);
+    }
+
+    [Fact]
+    public async Task RequestExecution_WithDifferentRequestId_Fails()
+    {
+        await _commands.Handle(
+            new StartWorkflowRun("run-1", "objetivo", "n-1"),
+            CancellationToken.None);
+        await _commands.Handle(
+            new RequestWorkflowRunExecution("run-1", "execute-run-1"),
+            CancellationToken.None);
+
+        var result = await _commands.Handle(
+            new RequestWorkflowRunExecution("run-1", "other-request"),
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("different execution request", result.Exception?.Message);
+    }
+
+    [Fact]
+    public async Task RequestExecution_AfterCompletion_Fails()
+    {
+        await _commands.Handle(
+            new StartWorkflowRun("run-1", "objetivo", "n-1"),
+            CancellationToken.None);
+        await _commands.Handle(
+            new CompleteWorkflowRun("run-1", "respuesta"),
+            CancellationToken.None);
+
+        var result = await _commands.Handle(
+            new RequestWorkflowRunExecution("run-1", "execute-run-1"),
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("only Running", result.Exception?.Message);
     }
 }

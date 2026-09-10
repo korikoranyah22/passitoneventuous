@@ -2,8 +2,9 @@
 
 ## Objetivo
 
-Entender la estrategia de tests del ejemplo: **29 tests que corren SIN
-Postgres y SIN LLM real**. Eso es posible gracias a dos artefactos de
+Entender la estrategia de tests del ejemplo: **72 tests que corren SIN Postgres
+y SIN LLM real**. Son 69 tests autocontenidos del núcleo y 3 que integran los
+ejemplos de MiyuAgents con Eventuous. Eso es posible gracias a dos artefactos de
 enseñanza que ya conocés de pasos anteriores.
 
 ## Los dos artefactos clave
@@ -30,16 +31,27 @@ if (expectedValue != -2 && expectedValue != currentVersion)
 Ya lo viste en el paso 6. Para los tests se usa en modo **scripted**: una cola
 de respuestas que controla exactamente qué devuelve cada llamada.
 
-## Los 29 tests, agrupados
+## Los 72 tests, agrupados
 
 | Clase | Qué verifica | Cantidad |
 |---|---|---|
-| `WorkflowRunStateTests` | Transiciones puras de estado (`.When(evento)`) | 3 |
-| `WorkflowRunCommandServiceTests` | Guards del run: completar inexistente, dos veces, fallar tras completar, etc. | 7 |
+| `WorkflowRunStateTests` | Transiciones puras de estado (`.When(evento)`), incluida la solicitud durable de ejecución | 4 |
+| `WorkflowRunCommandServiceTests` | Guards del run: completar inexistente, solicitud idempotente/conflictiva, fallar tras completar, etc. | 10 |
 | `WorkflowNodeStateTests` | Transiciones puras del nodo | 4 |
-| `WorkflowNodeCommandServiceTests` | Guards del nodo: hoja≠hijos, planificar dos veces, completar sin planificar… | 10 |
-| `RecursiveWorkflowRunnerTests` | El motor: árbol, persistencia, terminación, run fallido | 3 |
+| `WorkflowNodeCommandServiceTests` | Guards del nodo: hoja≠hijos, objetivos persistidos, planificar dos veces, completar sin planificar… | 11 |
+| `RecursiveWorkflowRunnerTests` | El motor: árbol, persistencia, terminación, run fallido y reanudación selectiva | 7 |
 | `OpenAiCompatibleGatewayTests` | El adaptador real con HTTP stub | 2 |
+| `IncidentInvestigationStateTests` | Replay puro y política determinista | 2 |
+| `IncidentInvestigationCommandServiceTests` | Orden, contratos, recuperación, retry, parking, recuperación manual y reentrega idempotente | 15 |
+| `HttpIncidentActionPortTests` | Contrato HTTP idempotente y clasificación de respuestas | 2 |
+| `MiyuEventuousBridgeTests` | Equivalencia pipeline/nodos, lifecycle y autoridad única del efecto | 3 |
+| `WorkflowApiHostTests` | Cola/worker/árbol, aceptación, recovery y lease multi-instancia | 12 |
+
+Los 3 tests de `MiyuEventuousBridgeTests` se detectan automáticamente al
+compilar. El checkout actual incluye `incident-response`, `routing-workflow` y
+`fixed-node-workflow`, por lo que corren los **72**. La detección condicional se
+conserva para que una copia aislada del curso todavía pueda ejecutar sus **69
+tests autocontenidos** sin el repositorio externo.
 
 ### Los tests del motor (los más valiosos)
 
@@ -108,9 +120,11 @@ garantía de terminación del workflow.
 ## Probalo
 
 ```bash
-dotnet test                     # los 29
-dotnet test --filter "FullyQualifiedName~WorkflowNodeTests"   # solo nodos
+dotnet test                     # 72: 69 core + 3 del puente Miyu
+dotnet test --filter "FullyQualifiedName~WorkflowNodeStateTests|FullyQualifiedName~WorkflowNodeCommandServiceTests"  # solo nodos
 dotnet test --filter "FullyQualifiedName~RecursiveWorkflowRunnerTests"  # solo motor
+dotnet test --filter "FullyQualifiedName~IncidentInvestigation"  # caso práctico
+dotnet test --filter "FullyQualifiedName~MiyuEventuousBridge"    # integración completa
 ```
 
 ---

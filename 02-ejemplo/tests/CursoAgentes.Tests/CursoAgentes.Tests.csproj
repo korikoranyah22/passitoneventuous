@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <MiyuExamplesAvailable Condition="Exists('..\..\..\..\angelnairav2_public\Packages\MiyuAgents\examples\incident-response\IncidentResponseExample.csproj')">true</MiyuExamplesAvailable>
+    <MiyuExamplesAvailable Condition="'$(MiyuExamplesAvailable)' == ''">false</MiyuExamplesAvailable>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,8 +27,17 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/CursoAgentes.Domain/CursoAgentes.Domain.csproj" />
+    <ProjectReference Include="../../src/CursoAgentes.Api/CursoAgentes.Api.csproj" />
     <ProjectReference Include="../../src/CursoAgentes.Engine/CursoAgentes.Engine.csproj" />
     <ProjectReference Include="../../src/CursoAgentes.Infrastructure/CursoAgentes.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/CursoAgentes.MiyuAgents/CursoAgentes.MiyuAgents.csproj"
+                      Condition="'$(MiyuExamplesAvailable)' == 'true'" />
+  </ItemGroup>
+
+  <!-- Los ejemplos Miyu viven fuera del curso. Si esa checkout no los trae,
+       la suite core sigue siendo ejecutable y sólo se omite el puente. -->
+  <ItemGroup Condition="'$(MiyuExamplesAvailable)' != 'true'">
+    <Compile Remove="MiyuEventuousBridgeTests.cs" />
   </ItemGroup>
 
 </Project>

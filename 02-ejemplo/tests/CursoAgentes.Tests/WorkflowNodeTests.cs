@@ -49,11 +49,17 @@ public class WorkflowNodeStateTests
     {
         var state = Node()
             .When(new WorkflowNodeEvents.V1.WorkflowNodePlanned(
-                "n-1", false, ["n-2", "n-3"], "dividir", Now));
+                "n-1",
+                false,
+                ["n-2", "n-3"],
+                "dividir",
+                Now,
+                ["sub 1", "sub 2"]));
 
         Assert.Equal(WorkflowNodeStatus.Planned, state.Status);
         Assert.False(state.IsLeaf);
         Assert.Equal(["n-2", "n-3"], state.ChildrenIds);
+        Assert.Equal(["sub 1", "sub 2"], state.ChildGoals);
     }
 
     [Fact]
@@ -123,6 +129,23 @@ public class WorkflowNodeCommandServiceTests
 
         Assert.False(result.Success);
         Assert.Contains("cannot declare children", result.Exception?.Message);
+    }
+
+    [Fact]
+    public async Task Plan_NonLeaf_RequiresOnePersistedGoalPerChild()
+    {
+        await Create();
+        var result = await _commands.Handle(
+            new PlanWorkflowNode(
+                "n-1",
+                IsLeaf: false,
+                ["n-2", "n-3"],
+                "dividir",
+                ["sólo un objetivo"]),
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("each child id", result.Exception?.Message);
     }
 
     [Fact]

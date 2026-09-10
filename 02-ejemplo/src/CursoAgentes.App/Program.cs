@@ -1,7 +1,10 @@
+using CursoAgentes.Domain.Incidents;
 using CursoAgentes.Domain.Workflow;
+using CursoAgentes.Engine.Incidents;
 using CursoAgentes.Engine.Workflow;
 using CursoAgentes.Infrastructure;
 using CursoAgentes.Infrastructure.Projections;
+using CursoAgentes.MiyuAgents;
 using Eventuous;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,10 +18,10 @@ using Npgsql;
 //  1. Conecta con Postgres (el mismo que usa el event store).
 //  2. Arranca el host: Eventuous crea el schema del event store y arranca la
 //     suscripción que alimenta el read model.
-//  3. Corre el workflow de nodos recursivos (con el gateway Fake por default;
-//     cambiá Llm:Provider a "OpenAI" para usar un LLM real).
-//  4. Imprime el árbol de nodos, la bitácora, los EVENTOS CRUDOS del event
-//     store (¡la auditoría!) y el read model.
+//  3. Sin argumentos, corre el workflow recursivo. --workflow-start lo deja
+//     Pending y --workflow-resume continúa desde eventos. Los modos --incident,
+//     --incident-pipeline y --incident-nodes muestran el caso híbrido.
+//  4. Imprime los EVENTOS CRUDOS del event store y el read model correspondiente.
 //
 // Correlo con:  dotnet run --project src/CursoAgentes.App
 // (Postgres arriba: docker compose up -d)
@@ -31,6 +34,17 @@ TypeMap.RegisterKnownEventTypes(typeof(WorkflowRunEvents.V1.WorkflowRunCreated).
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// La demo debe comportarse igual en Windows, Linux y contenedores. El host de
+// Windows agrega EventLog por defecto, pero escribir allí puede requerir
+// privilegios elevados y un simple warning no debe detener una suscripción.
+builder.Logging.ClearProviders();
+builder.Logging.AddSimpleConsole(options =>
+{
+    options.SingleLine = true;
+    options.TimestampFormat = "HH:mm:ss ";
+});
+builder.Logging.AddFilter("Eventuous.Subscription", LogLevel.Error);
+
 // La demo debe poder correrse desde CUALQUIER carpeta (p. ej.
 // `dotnet run --project src/CursoAgentes.App` desde la raíz del ejemplo).
 // El content root por defecto es el working directory; lo fijamos a la carpeta
@@ -40,6 +54,7 @@ builder.Configuration.Sources.Clear();
 builder.Configuration.SetBasePath(AppContext.BaseDirectory);
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddEnvironmentVariables();
+builder.Configuration.AddCommandLine(args.Where(argument => !IsAppMode(argument)).ToArray());
 
 builder.Services.AddCursoAgentesInfrastructure(builder.Configuration);
 
@@ -61,31 +76,112 @@ var connectionString = configuration.GetConnectionString("EventStore")
     ?? throw new InvalidOperationException("Missing ConnectionStrings:EventStore");
 await EnsurePostgresAsync(connectionString, ct);
 
-// ── 2. Arrancar el host ──────────────────────────────────────────────────────
-// Al arrancar, el SchemaInitializer de Eventuous crea el schema del event
-// store (curso_eventstore) y arrancan los hosted services (la suscripción
-// WorkflowReadModel).
+// ── 2. Preparar read models y arrancar el host ───────────────────────────────
+// Las tablas se crean antes de arrancar las suscripciones, para que un replay
+// de eventos existentes nunca llegue a una proyección sin destino.
+var readModel = host.Services.GetRequiredService<WorkflowReadModelStore>();
+var incidentReadModel = host.Services.GetRequiredService<IncidentReadModelStore>();
+await readModel.InitializeAsync(ct);
+await incidentReadModel.InitializeAsync(ct);
 await host.StartAsync(ct);
 await WaitForEventStoreObjectsAsync(connectionString, ct);
-
-// El read model son tablas aparte en el mismo Postgres (schema curso_readmodel).
-var readModel = host.Services.GetRequiredService<WorkflowReadModelStore>();
-await readModel.InitializeAsync(ct);
 Console.WriteLine("✔ Postgres listo — event store (curso_eventstore) y read model (curso_readmodel).");
 Console.WriteLine();
 
+var incidentMode = args.FirstOrDefault(IsIncidentMode);
+if (incidentMode is not null)
+{
+    if (incidentMode.Equals("--incident-retry", StringComparison.OrdinalIgnoreCase))
+    {
+        var modeIndex = Array.FindIndex(
+            args,
+            argument => argument.Equals(incidentMode, StringComparison.OrdinalIgnoreCase));
+        var investigationId = modeIndex >= 0 && modeIndex + 1 < args.Length
+            ? args[modeIndex + 1]
+            : null;
+        if (string.IsNullOrWhiteSpace(investigationId)
+            || investigationId.StartsWith("--", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Uso: --incident-retry <investigationId> "
+                + "--IncidentRetry:RequestId=<id> "
+                + "--IncidentRetry:RequestedBy=<actor> "
+                + "--IncidentRetry:Reason=<motivo>");
+        }
+
+        await RunIncidentRetryAsync(
+            host.Services,
+            incidentReadModel,
+            connectionString,
+            investigationId,
+            RequiredRetrySetting(configuration, "RequestId"),
+            RequiredRetrySetting(configuration, "RequestedBy"),
+            RequiredRetrySetting(configuration, "Reason"),
+            ct);
+    }
+    else
+    {
+        await RunIncidentDemoAsync(
+            host.Services,
+            incidentReadModel,
+            connectionString,
+            incidentMode,
+            ct);
+    }
+    await host.StopAsync(ct);
+    return;
+}
+
 // ── 3. Correr el workflow ────────────────────────────────────────────────────
-var goal = args.Length > 0
-    ? string.Join(" ", args)
-    : "¿Por qué los agentes necesitan event sourcing?";
-var runId = "run-" + Guid.NewGuid().ToString("N")[..8];
-
 var runner = host.Services.GetRequiredService<RecursiveWorkflowRunner>();
-Console.WriteLine($"▶ Ejecutando workflow para: «{goal}»");
-Console.WriteLine($"  (runId={runId} — cada nodo es un stream workflow-node-* en Postgres)");
-Console.WriteLine();
+var workflowMode = args.FirstOrDefault(IsWorkflowMode);
+if (workflowMode?.Equals("--workflow-start", StringComparison.OrdinalIgnoreCase) == true)
+{
+    var goalToPersist = RequiredArgumentAfter(args, workflowMode, "objetivo");
+    var preparedRunId = "run-" + Guid.NewGuid().ToString("N")[..8];
+    var handle = await runner.StartAsync(preparedRunId, goalToPersist, ct);
+    await WaitForRunProjectionStatusAsync(
+        readModel,
+        preparedRunId,
+        "Running",
+        TimeSpan.FromSeconds(10),
+        ct);
 
-var result = await runner.RunAsync(runId, goal, ct);
+    Console.WriteLine("⏸ Workflow preparado sin ejecutar agentes");
+    Console.WriteLine($"  runId={handle.RunId}");
+    Console.WriteLine($"  rootNodeId={handle.RootNodeId}");
+    Console.WriteLine($"  objetivo=«{handle.Goal}»");
+    Console.WriteLine("  eventos persistidos=2 (run creado + nodo raíz pendiente)");
+    Console.WriteLine();
+    Console.WriteLine("Para continuar desde otro proceso:");
+    Console.WriteLine($"  dotnet run --project src/CursoAgentes.App -- --workflow-resume {handle.RunId}");
+    await host.StopAsync(ct);
+    return;
+}
+
+string runId;
+string goal;
+WorkflowResult result;
+if (workflowMode?.Equals("--workflow-resume", StringComparison.OrdinalIgnoreCase) == true)
+{
+    runId = RequiredArgumentAfter(args, workflowMode, "runId");
+    Console.WriteLine($"▶ Reanudando workflow {runId} desde sus eventos");
+    Console.WriteLine("  Los nodos Completed se restauran; sólo avanzan Pending y Planned.");
+    Console.WriteLine();
+    result = await runner.ResumeAsync(runId, ct);
+    goal = result.Root.Goal;
+}
+else
+{
+    goal = args.Length > 0
+        ? string.Join(" ", args)
+        : "¿Por qué los agentes necesitan event sourcing?";
+    runId = "run-" + Guid.NewGuid().ToString("N")[..8];
+    Console.WriteLine($"▶ Ejecutando workflow para: «{goal}»");
+    Console.WriteLine($"  (runId={runId} — cada nodo es un stream workflow-node-* en Postgres)");
+    Console.WriteLine();
+    result = await runner.RunAsync(runId, goal, ct);
+}
 
 // ── 4a. El árbol resultante ──────────────────────────────────────────────────
 Console.WriteLine("── ÁRBOL DE NODOS (resultado en memoria) ─────────────────────");
@@ -128,12 +224,49 @@ foreach (var (nodeId, depth, isLeaf, status, nodeGoal) in nodes)
 Console.WriteLine();
 
 Console.WriteLine("✅ Demo completa. El workflow quedó persistido en Postgres —");
-Console.WriteLine($"   volvé a correr con el MISMO runId para ver que los eventos ya están.");
+Console.WriteLine($"   --workflow-resume {runId} reconstruye el mismo árbol sin repetir nodos completos.");
 await host.StopAsync(ct);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+static bool IsAppMode(string argument) =>
+    IsIncidentMode(argument) || IsWorkflowMode(argument);
+
+static bool IsIncidentMode(string argument) =>
+    argument.Equals("--incident", StringComparison.OrdinalIgnoreCase)
+    || argument.Equals("--incident-pipeline", StringComparison.OrdinalIgnoreCase)
+    || argument.Equals("--incident-nodes", StringComparison.OrdinalIgnoreCase)
+    || argument.Equals("--incident-retry", StringComparison.OrdinalIgnoreCase);
+
+static bool IsWorkflowMode(string argument) =>
+    argument.Equals("--workflow-start", StringComparison.OrdinalIgnoreCase)
+    || argument.Equals("--workflow-resume", StringComparison.OrdinalIgnoreCase);
+
+static string RequiredArgumentAfter(string[] arguments, string mode, string name)
+{
+    var index = Array.FindIndex(
+        arguments,
+        argument => argument.Equals(mode, StringComparison.OrdinalIgnoreCase));
+    var value = index >= 0 && index + 1 < arguments.Length
+        ? arguments[index + 1]
+        : null;
+    if (!string.IsNullOrWhiteSpace(value)
+        && !value.StartsWith("--", StringComparison.Ordinal))
+    {
+        return value;
+    }
+    throw new InvalidOperationException($"Falta {name} después de {mode}.");
+}
+
+static string RequiredRetrySetting(IConfiguration configuration, string name)
+{
+    var value = configuration[$"IncidentRetry:{name}"];
+    if (!string.IsNullOrWhiteSpace(value)) return value;
+    throw new InvalidOperationException(
+        $"Falta --IncidentRetry:{name}=<valor> para auditar el reintento manual.");
+}
 
 static async Task EnsurePostgresAsync(string connectionString, CancellationToken ct)
 {
@@ -252,6 +385,248 @@ static async Task WaitForProjectionAsync(
         await Task.Delay(200, ct);
     }
     Console.WriteLine("  ⚠ La proyección no alcanzó el estado final a tiempo (¿suscripción detenida?).");
+}
+
+static async Task WaitForRunProjectionStatusAsync(
+    WorkflowReadModelStore readModel,
+    string runId,
+    string expectedStatus,
+    TimeSpan timeout,
+    CancellationToken ct)
+{
+    var started = DateTime.UtcNow;
+    while (DateTime.UtcNow - started < timeout)
+    {
+        var run = await readModel.GetRunAsync(runId, ct);
+        if (run?.Status == expectedStatus) return;
+        await Task.Delay(200, ct);
+    }
+    throw new TimeoutException(
+        $"La proyección del workflow no alcanzó {expectedStatus} a tiempo.");
+}
+
+static async Task RunIncidentDemoAsync(
+    IServiceProvider services,
+    IncidentReadModelStore readModel,
+    string connectionString,
+    string mode,
+    CancellationToken ct)
+{
+    var investigationId = "inv-" + Guid.NewGuid().ToString("N")[..8];
+    var process = services.GetRequiredService<IncidentInvestigationProcess>();
+    var actionPort = services.GetRequiredService<IIncidentActionPort>();
+    IncidentInvestigationRun run;
+    string source;
+    int? miyuActionExecutions = null;
+
+    if (mode.Equals("--incident-pipeline", StringComparison.OrdinalIgnoreCase))
+    {
+        var bridged = await new MiyuIncidentInvestigationBridge(process).RunPipelineAsync(
+            investigationId,
+            "Investigate repeated payment API health-check failures.",
+            ct: ct);
+        run = bridged.Eventuous;
+        source = "MiyuAgents PipelineRunner → Eventuous";
+        miyuActionExecutions = bridged.MiyuActionExecutions;
+    }
+    else if (mode.Equals("--incident-nodes", StringComparison.OrdinalIgnoreCase))
+    {
+        var bridged = await new MiyuIncidentInvestigationBridge(process).RunFixedNodesAsync(
+            investigationId,
+            "Investigate repeated payment API health-check failures.",
+            ct: ct);
+        run = bridged.Eventuous;
+        source = "MiyuAgents fixed nodes → Eventuous";
+        miyuActionExecutions = bridged.MiyuActionExecutions;
+    }
+    else
+    {
+        var collectedAt = DateTimeOffset.UtcNow.ToString("O");
+        var input = new IncidentInvestigationInput(
+            investigationId,
+            "payments-api",
+            new IncidentSignal(
+                "payments-api",
+                TotalChecks: 7,
+                FailedChecks: 6,
+                AffectedRegions: 2,
+                collectedAt),
+            new IncidentAnalysis(
+                "Payment checks are failing in two regions.",
+                "high",
+                ["6 failed checks", "2 affected regions"],
+                new IncidentRouteAudit(
+                    "fast-private-analysis",
+                    "local/local-fast",
+                    "local",
+                    "local-fast",
+                    Attempts: 1)),
+            new IncidentCritique(
+                "confirmed",
+                Confidence: 0.92,
+                Issues: [],
+                new IncidentRouteAudit(
+                    "critical-judge",
+                    "cloud/cloud-reasoner",
+                    "cloud",
+                    "cloud-reasoner",
+                    Attempts: 1)));
+        run = await process.RunAsync(input, ct);
+        source = "Eventuous directo";
+    }
+
+    Console.WriteLine("▶ Ejecutando investigación de incidente event-sourced");
+    Console.WriteLine($"  investigationId={investigationId}");
+    Console.WriteLine($"  origen={source}");
+    Console.WriteLine($"  action port={actionPort.GetType().Name}");
+    if (miyuActionExecutions is not null)
+        Console.WriteLine($"  efectos ejecutados por MiyuAgents={miyuActionExecutions} (esperado: 0)");
+    Console.WriteLine("  Los artefactos collector/LLM ya llegan estructurados al aggregate.");
+    Console.WriteLine();
+
+    Console.WriteLine($"  señal: {run.State.Signal?.FailedChecks}/{run.State.Signal?.TotalChecks} checks fallidos");
+    Console.WriteLine($"  analista: {run.State.Analysis?.Route.Model}");
+    Console.WriteLine($"  crítico: {run.State.Critique?.Route.Model} ({run.State.Critique?.Confidence:P0})");
+    Console.WriteLine($"  política: {run.State.Decision?.PolicyVersion} → {run.State.Decision?.Action}");
+    Console.WriteLine($"  frontera transaccional: {run.State.Status}; efecto pendiente de la suscripción");
+    Console.WriteLine();
+
+    await WaitForIncidentProjectionAsync(readModel, investigationId, TimeSpan.FromSeconds(10), ct);
+    var view = await readModel.GetAsync(investigationId, ct);
+    await PrintIncidentAuditTrailAsync(connectionString, investigationId, ct);
+    Console.WriteLine("── READ MODEL DEL INCIDENTE ───────────────────────────────────");
+    if (view is not null)
+    {
+        Console.WriteLine($"  estado={view.Status} servicio={view.Service}");
+        Console.WriteLine($"  decisión={view.Action} política={view.PolicyVersion}");
+        if (view.Status == "ActionParked")
+        {
+            Console.WriteLine(
+                $"  parked={view.FailureCode} transitorio={view.FailureWasTransient} intentos={view.FailureAttempts}");
+        }
+        else
+        {
+            Console.WriteLine($"  externo={view.ExternalId} clave={view.IdempotencyKey}");
+        }
+    }
+    Console.WriteLine();
+    Console.WriteLine(view?.Status == "ActionParked"
+        ? "⚠ Acción estacionada para intervención: no se registró una confirmación falsa."
+        : "✅ Investigación persistida. El replay de estos eventos no llama al LLM ni repite el efecto.");
+}
+
+static async Task RunIncidentRetryAsync(
+    IServiceProvider services,
+    IncidentReadModelStore readModel,
+    string connectionString,
+    string investigationId,
+    string requestId,
+    string requestedBy,
+    string reason,
+    CancellationToken ct)
+{
+    var retry = services.GetRequiredService<IncidentActionRetryProcess>();
+    var actionPort = services.GetRequiredService<IIncidentActionPort>();
+
+    Console.WriteLine("▶ Solicitando recuperación manual de una acción estacionada");
+    Console.WriteLine($"  investigationId={investigationId}");
+    Console.WriteLine($"  requestId={requestId} actor={requestedBy}");
+    Console.WriteLine($"  motivo={reason}");
+    Console.WriteLine($"  action port={actionPort.GetType().Name}");
+    Console.WriteLine();
+
+    var state = await retry.RequestAsync(
+        investigationId,
+        requestId,
+        requestedBy,
+        reason,
+        ct);
+    Console.WriteLine(
+        state.Status == IncidentInvestigationStatus.Completed
+            ? "  La misma solicitud ya estaba aplicada; no se agregó otro evento ni se repitió el efecto."
+            : $"  reintento manual #{state.ManualRetryCount} persistido; la suscripción ejecutará el efecto.");
+    Console.WriteLine();
+
+    await WaitForIncidentProjectionAsync(
+        readModel,
+        investigationId,
+        TimeSpan.FromSeconds(10),
+        ct,
+        minimumManualRetryCount: state.ManualRetryCount);
+    var view = await readModel.GetAsync(investigationId, ct);
+    await PrintIncidentAuditTrailAsync(connectionString, investigationId, ct);
+    Console.WriteLine("── READ MODEL DEL INCIDENTE RECUPERADO ────────────────────");
+    if (view is not null)
+    {
+        Console.WriteLine($"  estado={view.Status} servicio={view.Service}");
+        Console.WriteLine(
+            $"  reintentos manuales={view.ManualRetryCount} "
+            + $"requestId={view.LastRetryRequestId} actor={view.LastRetryRequestedBy}");
+        Console.WriteLine($"  motivo={view.LastRetryReason}");
+        if (view.Status == "ActionParked")
+        {
+            Console.WriteLine(
+                $"  nuevo fallo={view.FailureCode} transitorio={view.FailureWasTransient} "
+                + $"intentos={view.FailureAttempts}");
+        }
+        else
+        {
+            Console.WriteLine($"  externo={view.ExternalId} clave={view.IdempotencyKey}");
+        }
+    }
+    Console.WriteLine();
+    Console.WriteLine(view?.Status == "Completed"
+        ? "✅ Recuperación completada y auditada sin alterar la historia previa."
+        : "⚠ El reintento también fue estacionado; la nueva falla quedó auditada.");
+}
+
+static async Task PrintIncidentAuditTrailAsync(
+    string connectionString,
+    string investigationId,
+    CancellationToken ct)
+{
+    await using var connection = new NpgsqlConnection(connectionString);
+    await connection.OpenAsync(ct);
+    await using var command = new NpgsqlCommand(
+        """
+        SELECT m.global_position, m.message_type, m.stream_position, m.json_data::text
+          FROM curso_eventstore.messages m
+          JOIN curso_eventstore.streams s ON s.stream_id = m.stream_id
+         WHERE s.stream_name = @stream
+         ORDER BY m.global_position
+        """, connection);
+    command.Parameters.AddWithValue("stream", $"incident-investigation-{investigationId}");
+
+    Console.WriteLine("── AUDITORÍA DEL INCIDENTE ────────────────────────────────────");
+    await using var reader = await command.ExecuteReaderAsync(ct);
+    while (await reader.ReadAsync(ct))
+    {
+        Console.WriteLine($"  #{reader.GetInt64(0)} {reader.GetString(1)} (pos {reader.GetInt64(2)})");
+        Console.WriteLine($"      payload: {Truncate(reader.GetString(3), 160)}");
+    }
+    Console.WriteLine();
+}
+
+static async Task WaitForIncidentProjectionAsync(
+    IncidentReadModelStore readModel,
+    string investigationId,
+    TimeSpan timeout,
+    CancellationToken ct,
+    int minimumManualRetryCount = 0)
+{
+    var started = DateTime.UtcNow;
+    while (DateTime.UtcNow - started < timeout)
+    {
+        var view = await readModel.GetAsync(investigationId, ct);
+        if (view is { Status: "Completed" or "ActionParked" }
+            && view.ManualRetryCount >= minimumManualRetryCount)
+        {
+            return;
+        }
+        await Task.Delay(200, ct);
+    }
+    throw new TimeoutException(
+        "La reacción o la proyección del incidente no alcanzó el estado final a tiempo.");
 }
 
 static void PrintTree(NodeResult node, string prefix)

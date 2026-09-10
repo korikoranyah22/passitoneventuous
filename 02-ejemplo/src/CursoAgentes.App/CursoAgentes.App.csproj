@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CursoAgentes.Infrastructure\CursoAgentes.Infrastructure.csproj" />
+    <ProjectReference Include="..\CursoAgentes.MiyuAgents\CursoAgentes.MiyuAgents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

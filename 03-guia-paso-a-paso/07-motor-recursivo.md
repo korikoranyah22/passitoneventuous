@@ -13,76 +13,55 @@ vía los command services. El estado del árbol NO vive solo en memoria: vive en
 el event store. Si el proceso muere a mitad de camino, el árbol se reconstruye
 releyendo los streams.
 
-```
-RunAsync(objetivo)
-  ├─ StartWorkflowRun        → WorkflowRunCreated
-  ├─ CreateWorkflowNode(raíz)→ WorkflowNodeCreated
-  └─ ExecuteNodeAsync(raíz)                        ← RECURSIÓN
-       ├─ PlannerAgent.PlanAsync → NodePlan (¿hoja o divide?)
-       ├─ si divide:
-       │    PlanWorkflowNode(no-hoja) → WorkflowNodePlanned
-       │    para cada sub-objetivo: CreateWorkflowNode + ExecuteNodeAsync(hijo)
-       │    SynthesizerAgent.SynthesizeAsync(childrenAnswers)
-       │    CompleteWorkflowNode → WorkflowNodeCompleted
-       └─ si es hoja:
-            PlanWorkflowNode(hoja) → WorkflowNodePlanned
-            WorkerAgent.AnswerAsync
-            CompleteWorkflowNode → WorkflowNodeCompleted
-  ├─ CompleteWorkflowRun     → WorkflowRunCompleted
+```text
+RunAsync = StartAsync + ResumeAsync
+
+StartAsync
+  ├─ WorkflowRunCreated
+  └─ WorkflowNodeCreated(raíz Pending)
+
+ResumeAsync(runId)
+  ├─ reconstruye run + raíz desde sus streams
+  └─ ResumeNodeAsync(estado)                   ← RECURSIÓN
+       ├─ Completed → restaura respuesta e hijos; cero LLM
+       ├─ Pending   → planifica y persiste IDs + objetivos de hijos
+       └─ Planned
+            ├─ hoja   → Worker + Complete
+            └─ padre → crea/reanuda hijos + Synthesizer + Complete
 ```
 
 ## El método recursivo, en detalle
 
 ```csharp
-private async Task<NodeResult> ExecuteNodeAsync(AgentContext ctx, CancellationToken ct)
+private async Task<NodeResult> ResumeNodeAsync(WorkflowNodeState state, ...)
 {
-    // ── Fase 1: PLANIFICAR ── ¿se divide o se responde directo?
-    var plan = await _planner.PlanAsync(ctx, ct);
-    ctx.Steps.Add($"[{ctx.NodeId}] plan: {(plan.IsLeaf ? "hoja" : $"{plan.SubGoals.Count} sub-objetivos")} — {plan.Rationale}");
+    if (state.Status == Completed)
+        return await ReadCompletedNodeAsync(state); // no llama agentes
 
-    if (!plan.IsLeaf && ctx.Depth < ctx.MaxDepth && plan.SubGoals.Count > 0)
+    if (state.Status == Pending)
     {
-        // ── Fase 2a: DIVIDIR ──
-        var childIds = plan.SubGoals.Select((_, i) => $"n-{Guid.NewGuid():N}").ToArray();
-        await GuardResult(_nodes.Handle(
-            new PlanWorkflowNode(ctx.NodeId, IsLeaf: false, childIds, plan.Rationale), ct));
-
-        var children = new List<NodeResult>();
-        var childAnswers = new Dictionary<string, string>();
-
-        for (var i = 0; i < plan.SubGoals.Count; i++)
-        {
-            var childId = childIds[i];
-            await GuardResult(_nodes.Handle(
-                new CreateWorkflowNode(childId, ctx.RunId, ctx.NodeId, ctx.Depth + 1, i, plan.SubGoals[i]), ct));
-
-            var childCtx = new AgentContext { RunId = ctx.RunId, NodeId = childId,
-                Goal = plan.SubGoals[i], Depth = ctx.Depth + 1, MaxDepth = ctx.MaxDepth };
-
-            // ── RECURSIÓN: el hijo repite TODO el proceso ──
-            var childResult = await ExecuteNodeAsync(childCtx, ct);
-            children.Add(childResult);
-            childAnswers[childId] = childResult.Answer;
-        }
-
-        // ── Fase 3: SINTETIZAR ── (acá todos los hijos ya están Completed)
-        var synthCtx = ctx with { ChildAnswers = childAnswers };
-        var synthesized = await _synthesizer.SynthesizeAsync(synthCtx, ct);
-        await GuardResult(_nodes.Handle(new CompleteWorkflowNode(ctx.NodeId, synthesized), ct));
-
-        return new NodeResult(ctx.NodeId, ctx.Goal, ctx.Depth, IsLeaf: false, synthesized, children, plan.Rationale);
+        var plan = await _planner.PlanAsync(Context(state), ct);
+        state = await Plan(state, plan); // persiste childIds Y childGoals
     }
 
-    // ── Fase 2b: HOJA ── el Worker responde directo.
-    await GuardResult(_nodes.Handle(new PlanWorkflowNode(ctx.NodeId, IsLeaf: true, [], plan.Rationale), ct));
-    var answer = await _worker.AnswerAsync(ctx, ct);
-    await GuardResult(_nodes.Handle(new CompleteWorkflowNode(ctx.NodeId, answer), ct));
+    if (state.IsLeaf)
+        return await AnswerAndComplete(state, ct);
 
-    return new NodeResult(ctx.NodeId, ctx.Goal, ctx.Depth, IsLeaf: true, answer, [], plan.Rationale);
+    foreach (var childId in state.ChildrenIds)
+    {
+        var child = await ReadOrCreateFromPersistedPlan(state, childId, ct);
+        children.Add(await ResumeNodeAsync(child, ...)); // recursión
+    }
+
+    return await SynthesizeAndComplete(state, children, ct);
 }
 ```
 
-### Las tres cosas que tenés que notar
+`WorkflowExecutionReader` aplica eventos tipados directamente desde el event
+store. El runner no usa el read model para decidir: una proyección puede estar
+atrasada, mientras que el stream del aggregate es la fuente de verdad.
+
+### Las cuatro cosas que tenés que notar
 
 1. **La recursión y sus tres frenos**: `!plan.IsLeaf` (el LLM dijo "dividí"),
    `ctx.Depth < ctx.MaxDepth` (tope de profundidad — el freno duro), y
@@ -93,15 +72,23 @@ private async Task<NodeResult> ExecuteNodeAsync(AgentContext ctx, CancellationTo
 3. **La invariante cross-aggregate la aplica el runner**: cuando el padre se
    completa, la recursión ya terminó → todos los hijos están `Completed` *por
    construcción*.
+4. **El plan es un checkpoint completo**: `WorkflowNodePlanned` guarda los IDs
+   y objetivos de los hijos. Si el proceso cae antes de crear uno, el objetivo
+   no se pierde y el hijo puede recrearse exactamente desde el evento.
 
 ### Manejo de fallos
 
 ```csharp
 try
 {
-    var root = await ExecuteNodeAsync(rootContext, ct);
+    var root = await ResumeNodeAsync(rootState, steps, ct);
     await GuardResult(_runs.Handle(new CompleteWorkflowRun(runId, root.Answer), ct));
-    return new WorkflowResult(runId, root.Answer, root, rootContext.Steps);
+    return new WorkflowResult(runId, root.Answer, root, steps);
+}
+catch (OperationCanceledException) when (ct.IsCancellationRequested)
+{
+    // Interrupción operativa: queda Running para ResumeAsync.
+    throw;
 }
 catch (Exception ex)
 {
@@ -111,8 +98,15 @@ catch (Exception ex)
 }
 ```
 
-Si el LLM se cae a mitad de camino: el run queda `Failed`, y los eventos de los
-nodos que sí se completaron siguen ahí. Auditoría + reanudación.
+Un crash real o una cancelación deja el run `Running`; `ResumeAsync` continúa
+desde ahí. Una falla de negocio/técnica no cancelada queda `Failed` y requiere
+una política explícita diferente: el resume post-crash no reabre fallos.
+
+La garantía es **no repetir fases ya persistidas**, no exactamente-once del
+LLM. Si el proceso cae después de recibir una respuesta pero antes de guardar
+`WorkflowNodeCompleted`, esa llamada puede repetirse. Para efectos externos se
+necesita además idempotencia; para LLMs costosos puede agregarse un evento de
+resultado intermedio antes de completar el nodo.
 
 ## Probalo
 
@@ -120,7 +114,7 @@ nodos que sí se completaron siguen ahí. Auditoría + reanudación.
 dotnet test --filter "FullyQualifiedName~RecursiveWorkflowRunnerTests"
 ```
 
-Los tres tests (todos con LLM falso y event store en memoria):
+Los siete tests (todos con LLM falso y event store en memoria) incluyen:
 
 1. **`FullRun_WithScriptedLlm_BuildsTree_AndPersistsEverything`**: árbol de 3
    nodos, cada nodo con sus 3 eventos (Created+Planned+Completed), run
@@ -130,6 +124,24 @@ Los tres tests (todos con LLM falso y event store en memoria):
    terminación.**
 3. **`Run_WhenLlmThrows_RunEndsFailed_InEventStore`**: LLM caído → run queda
    `Failed` con su evento persistido.
+4. **`Resume_PlannedParent_CreatesMissingChildrenFromPersistedGoals`**:
+   recupera hijos que todavía no tenían stream.
+5. **`Resume_AfterCancellation_SkipsCompletedSubtree`**: una rama completa se
+   restaura y sólo se ejecutan la rama pendiente y la síntesis.
+6. **`Resume_CompletedRun_ReconstructsTreeWithoutCallingLlmOrAppendingEvents`**:
+   reconstruye el árbol sin llamadas ni eventos nuevos.
+7. **`Resume_RunCreatedWithoutRoot_RecreatesRootFromRunEvent`**: cubre el crash
+   entre crear el aggregate del run y crear el aggregate raíz.
+
+Probalo en dos procesos con PostgreSQL:
+
+```bash
+dotnet run --project src/CursoAgentes.App -- \
+  --workflow-start "¿Cómo se reanuda un árbol?"
+
+# copiá el runId impreso
+dotnet run --project src/CursoAgentes.App -- --workflow-resume run-1234abcd
+```
 
 ---
 

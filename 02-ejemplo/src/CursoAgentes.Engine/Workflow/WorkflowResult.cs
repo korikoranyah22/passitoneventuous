@@ -29,3 +29,8 @@ public sealed record WorkflowResult(
     private static int CountNodes(NodeResult node)
         => 1 + node.Children.Sum(CountNodes);
 }
+
+public sealed record WorkflowRunHandle(
+    string RunId,
+    string RootNodeId,
+    string Goal);

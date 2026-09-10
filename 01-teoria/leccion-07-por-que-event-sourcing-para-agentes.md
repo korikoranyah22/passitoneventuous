@@ -39,10 +39,11 @@ lo que pasó antes — y se puede inspeccionar y reintentar.
 "¿Por qué el agente respondió esto?" es la pregunta más difícil de responder
 con un sistema opaco.
 
-**Event sourcing**: la respuesta está en el store. Cada llamada, cada decisión
-de planificación, cada síntesis, quedó como evento inmutable con timestamp. La
-demo imprime esa auditoría (`PrintAuditTrailAsync`): es EL argumento visual del
-curso.
+**Event sourcing**: la respuesta está en los hechos que decidimos persistir. En
+el ejemplo quedan los objetivos, planes, respuestas y transiciones con
+timestamp; no se guardan todavía todos los prompts, tokens ni intentos de cada
+llamada. La demo imprime esa auditoría (`PrintAuditTrailAsync`) y el ejercicio
+de costos propone ampliar el contrato.
 
 ## 7.2 El patrón que se repite en producción
 
@@ -72,6 +73,13 @@ recursar).
 - **Cuesta más al principio**: modelar eventos + estado + guards + proyección
   es más trabajo que un CRUD. Se paga solo cuando las cuatro propiedades de
   7.1 están presentes.
+
+La solución del curso implementa ese “cómo” explícitamente:
+`WorkflowExecutionReader` reconstruye estados desde los streams y
+`RecursiveWorkflowRunner.ResumeAsync` interpreta `Pending`, `Planned` y
+`Completed`. El event store aporta hechos; el runner aporta la política de
+continuación. No se consulta el read model para decidir porque puede estar
+atrasado.
 
 ## 7.4 Y la pregunta del millón: ¿cada nodo es un aggregate?
 
@@ -109,3 +117,7 @@ raíz. Es la "portada" del árbol.
 - El runner que persiste cada transición: `02-ejemplo/src/CursoAgentes.Engine/Workflow/RecursiveWorkflowRunner.cs`
 - Test del run fallido (LLM caído → `WorkflowRunFailed` persistido):
   `02-ejemplo/tests/CursoAgentes.Tests/RecursiveWorkflowRunnerTests.cs` → `Run_WhenLlmThrows_RunEndsFailed_InEventStore`
+
+---
+
+**Siguiente**: [Lección 8 · Workflows híbridos, routing y decisión determinista](leccion-08-workflows-hibridos-y-routing.md)

@@ -11,7 +11,9 @@ verdad en Postgres.
 Eventuous.Postgresql convierte un Postgres común en un event store:
 tablas `streams` y `messages` + el tipo compuesto `stream_message`, en un
 schema propio (`curso_eventstore`). El mismo Postgres también aloja el read
-model (`curso_readmodel`, paso 8) — dos "bases lógicas" en una base física.
+model (`curso_readmodel`, paso 8). El host HTTP del paso 13 agrega
+`curso_coordination` para sus leases; son tres responsabilidades aisladas en
+una sola base física.
 
 ## Código (archivo `src/CursoAgentes.Infrastructure/DependencyInjection.cs`)
 
@@ -44,7 +46,9 @@ public static IServiceCollection AddCursoAgentesInfrastructure(
     if (provider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
         services.AddSingleton<ILlmGateway, OpenAiCompatibleGateway>();
     else
-        services.AddSingleton<ILlmGateway, FakeLlmGateway>();
+        services.AddSingleton<ILlmGateway>(sp =>
+            new FakeLlmGateway(
+                logger: sp.GetRequiredService<ILogger<FakeLlmGateway>>()));
 
     // ── Agentes + motor (paso 7) ───────────────────────────────────────────
     services.AddSingleton<PlannerAgent>();
@@ -65,6 +69,11 @@ public static IServiceCollection AddCursoAgentesInfrastructure(
 }
 ```
 
+El fake se construye explícitamente sin script para activar su modo `smart`.
+Registrarlo sólo por tipo haría que DI resolviera su parámetro opcional
+`IEnumerable<string>` como una colección vacía y lo dejaría accidentalmente en
+modo scripted.
+
 ### Qué hace cada línea de Eventuous
 
 | Línea | Efecto |
@@ -72,12 +81,17 @@ public static IServiceCollection AddCursoAgentesInfrastructure(
 | `AddEventuousPostgres(conn, "curso_eventstore", initializeDatabase: true)` | Registra el `NpgsqlDataSource` y un hosted service que **crea el schema del event store al arrancar el host** |
 | `AddEventStore<PostgresStore>()` | El `IEventStore` concreto que usan los command services |
 | `AddPostgresCheckpointStore()` | Checkpoints de suscripciones en Postgres |
-| `AddSubscription<PostgresAllStreamSubscription, …>` | Una suscripción a **todos los streams** que alimenta la proyección del read model (paso 8) |
+| `AddSubscription<PostgresAllStreamSubscription, …>` | Registra un consumidor durable sobre **todos los streams**: puede alimentar una proyección o reaccionar con un efecto |
+
+La solución final registra checkpoints independientes para
+`WorkflowReadModel`, `IncidentReadModel` e `IncidentActions`. Esto es
+intencional: que una proyección haya avanzado no significa que el efecto del
+incidente haya terminado, ni viceversa.
 
 > **Detalle del checkpoint** (mirá `ConfigureCheckpoint` en el archivo):
 > `CheckpointCommitBatchSize = 1` y `CheckpointCommitDelayMs = 100` — flush
-> agresivo para minimizar el replay tras un crash. Es la misma política que usa
-> el repo real que inspira este curso.
+> agresivo para minimizar el replay tras un crash. En un sistema con más
+> volumen conviene ajustar batch y demora según el costo de reprocesar.
 
 ### La connection string
 

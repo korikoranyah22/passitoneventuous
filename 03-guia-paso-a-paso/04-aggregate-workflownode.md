@@ -44,7 +44,8 @@ public static class WorkflowNodeEvents
 
         [EventType("V1.WorkflowNodePlanned")]
         public record WorkflowNodePlanned(
-            string NodeId, bool IsLeaf, string[] ChildrenIds, string Rationale, string PlannedAt);
+            string NodeId, bool IsLeaf, string[] ChildrenIds, string Rationale,
+            string PlannedAt, string[]? ChildGoals = null);
 
         [EventType("V1.WorkflowNodeCompleted")]
         public record WorkflowNodeCompleted(string NodeId, string Answer, string CompletedAt);
@@ -71,14 +72,23 @@ static IEnumerable<object> Plan(WorkflowNodeState state, object[] _, PlanWorkflo
     if (!cmd.IsLeaf && cmd.ChildrenIds.Length == 0)
         throw new DomainException("PlanWorkflowNode: a non-leaf node must declare at least one child.");
 
+    var childGoals = cmd.ChildGoals ?? [];
+    if (cmd.IsLeaf && childGoals.Length > 0)
+        throw new DomainException("PlanWorkflowNode: a leaf node cannot declare child goals.");
+    if (!cmd.IsLeaf && childGoals.Length != cmd.ChildrenIds.Length)
+        throw new DomainException("PlanWorkflowNode: each child id must have a persisted goal.");
+    if (childGoals.Any(string.IsNullOrWhiteSpace))
+        throw new DomainException("PlanWorkflowNode: child goals cannot be empty.");
+
     yield return new WorkflowNodeEvents.V1.WorkflowNodePlanned(
-        cmd.NodeId, cmd.IsLeaf, cmd.ChildrenIds, cmd.Rationale, Now);
+        cmd.NodeId, cmd.IsLeaf, cmd.ChildrenIds, cmd.Rationale, Now, childGoals);
 }
 ```
 
-> Los `ChildrenIds` se guardan en el evento como `string[]`. Eventuous los
-> serializa a `jsonb` en Postgres. Cuando el run se reanuda, el nodo sabe qué
-> hijos creó — aunque el proceso haya muerto antes.
+> `ChildrenIds` y `ChildGoals` se guardan juntos en el evento. Eventuous los
+> serializa a `jsonb` en Postgres. Si el proceso muere después de planificar pero
+> antes de crear un hijo, el resume conserva tanto su identidad como el objetivo
+> necesario para crearlo. Persistir sólo los IDs no alcanzaría.
 
 ## La invariante que NO está acá (y por qué)
 
@@ -91,12 +101,12 @@ aggregates → orquestación — es una de las lecciones centrales del curso.
 ## Probalo
 
 ```bash
-dotnet test --filter "FullyQualifiedName~WorkflowNodeTests"
+dotnet test --filter "FullyQualifiedName~WorkflowNodeStateTests|FullyQualifiedName~WorkflowNodeCommandServiceTests"
 ```
 
-Cubre: transiciones de estado y los 4 guards (planificar hoja con hijos,
-no-hoja sin hijos, planificar dos veces, completar sin planificar, completar
-dos veces, fallar un nodo inexistente, fallar tras completar…).
+Cubre: transiciones de estado y guards de estructura, objetivos persistidos,
+planificación única, finalización y fallo (hoja con hijos, no-hoja sin hijos,
+cantidad de IDs distinta de objetivos, completar sin planificar, etc.).
 
 ---
 
